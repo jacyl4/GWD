@@ -2,29 +2,76 @@ package system
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
-// DebianRelease captures the numeric version and codename we need for an upgrade step.
+// DebianRelease captures the metadata we need for a specific Debian release.
 type DebianRelease struct {
-	Version  string
-	Codename string
+	Version       string
+	Codename      string
+	SecuritySuite string
+	UpdatesSuite  string
 }
 
 var debianUpgradePath = []DebianRelease{
-	{Version: "9", Codename: "stretch"},
-	{Version: "10", Codename: "buster"},
-	{Version: "11", Codename: "bullseye"},
-	{Version: "12", Codename: "bookworm"},
-	{Version: "13", Codename: "trixie"},
+	{Version: "9", Codename: "stretch", SecuritySuite: "stretch/updates", UpdatesSuite: "stretch-updates"},
+	{Version: "10", Codename: "buster", SecuritySuite: "buster/updates", UpdatesSuite: "buster-updates"},
+	{Version: "11", Codename: "bullseye", SecuritySuite: "bullseye-security", UpdatesSuite: "bullseye-updates"},
+	{Version: "12", Codename: "bookworm", SecuritySuite: "bookworm-security", UpdatesSuite: "bookworm-updates"},
+	{Version: "13", Codename: "trixie", SecuritySuite: "trixie-security", UpdatesSuite: "trixie-updates"},
+}
+
+func releaseForCodename(codename string) (*DebianRelease, error) {
+	for i := range debianUpgradePath {
+		if debianUpgradePath[i].Codename == codename {
+			return &debianUpgradePath[i], nil
+		}
+	}
+
+	return nil, errors.Errorf("unknown Debian codename: %s", codename)
+}
+
+func ensureAptConfiguration() error {
+	aptConfigs := map[string]string{
+		"/etc/apt/apt.conf.d/01InstallLess": `APT::Get::Assume-Yes "true";
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";`,
+		"/etc/apt/apt.conf.d/71debconf": `Dpkg::Options {
+   "--force-confdef";
+   "--force-confold";
+};`,
+	}
+
+	for file, content := range aptConfigs {
+		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+			return errors.Wrapf(err, "failed to write apt configuration file: %s", file)
+		}
+	}
+
+	return nil
+}
+
+func releaseRequiresNonFreeFirmware(release *DebianRelease) bool {
+	if release == nil {
+		return false
+	}
+
+	version, err := strconv.Atoi(release.Version)
+	if err != nil {
+		return false
+	}
+
+	return version >= 12
 }
 
 type debianReleaseInfo struct {
@@ -42,6 +89,10 @@ func UpgradeDebianTo13() error {
 
 	if info.ID != "debian" {
 		return errors.Errorf("unsupported distribution: %s", info.ID)
+	}
+
+	if err := ensureAptConfiguration(); err != nil {
+		return errors.Wrap(err, "failed to apply apt configuration")
 	}
 
 	idx, err := releaseIndex(info)
@@ -176,6 +227,16 @@ func normalizeDebianVersion(version string) string {
 }
 
 func updateAptSources(currentCodename, nextCodename string) error {
+	currentRelease, err := releaseForCodename(currentCodename)
+	if err != nil {
+		return err
+	}
+
+	nextRelease, err := releaseForCodename(nextCodename)
+	if err != nil {
+		return err
+	}
+
 	sources := []string{}
 
 	if _, err := os.Stat("/etc/apt/sources.list"); err == nil {
@@ -192,7 +253,7 @@ func updateAptSources(currentCodename, nextCodename string) error {
 	}
 
 	for _, path := range sources {
-		if err := replaceCodenameInFile(path, currentCodename, nextCodename); err != nil {
+		if err := rewriteSourcesList(path, currentRelease, nextRelease); err != nil {
 			return err
 		}
 	}
@@ -200,32 +261,183 @@ func updateAptSources(currentCodename, nextCodename string) error {
 	return nil
 }
 
-func replaceCodenameInFile(path, currentCodename, nextCodename string) error {
-	content, err := os.ReadFile(path)
+func rewriteSourcesList(path string, current, next *DebianRelease) error {
+	original, err := os.ReadFile(path)
 	if err != nil {
 		return errors.Wrapf(err, "failed to read %s", path)
 	}
 
-	if !strings.Contains(string(content), currentCodename) {
+	updated, changed, err := rewriteSourcesContent(original, current, next)
+	if err != nil {
+		return errors.Wrapf(err, "failed to update suites in %s", path)
+	}
+
+	if !changed {
 		return nil
 	}
 
-	if err := createBackup(path, content); err != nil {
+	if err := createBackup(path, original); err != nil {
 		return err
 	}
-
-	updated := strings.ReplaceAll(string(content), currentCodename, nextCodename)
 
 	info, err := os.Stat(path)
 	if err != nil {
 		return errors.Wrapf(err, "failed to stat %s", path)
 	}
 
-	if err := os.WriteFile(path, []byte(updated), info.Mode().Perm()); err != nil {
+	if err := os.WriteFile(path, updated, info.Mode().Perm()); err != nil {
 		return errors.Wrapf(err, "failed to write %s", path)
 	}
 
 	return nil
+}
+
+func rewriteSourcesContent(content []byte, current, next *DebianRelease) ([]byte, bool, error) {
+	needsFirmware := releaseRequiresNonFreeFirmware(next)
+	lines := strings.Split(string(content), "\n")
+	changed := false
+
+	for idx, line := range lines {
+		updatedLine, lineChanged := transformAptSourceLine(line, current, next, needsFirmware)
+		if lineChanged {
+			lines[idx] = updatedLine
+			changed = true
+		}
+	}
+
+	if !changed {
+		return content, false, nil
+	}
+
+	joined := strings.Join(lines, "\n")
+	if bytes.HasSuffix(content, []byte("\n")) && !strings.HasSuffix(joined, "\n") {
+		joined += "\n"
+	}
+
+	return []byte(joined), true, nil
+}
+
+func transformAptSourceLine(line string, current, next *DebianRelease, needsFirmware bool) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return line, false
+	}
+
+	if !strings.Contains(line, current.Codename) &&
+		(current.SecuritySuite == "" || !strings.Contains(line, current.SecuritySuite)) &&
+		(current.UpdatesSuite == "" || !strings.Contains(line, current.UpdatesSuite)) {
+		return line, false
+	}
+
+	parts := strings.SplitN(line, "#", 2)
+	body := parts[0]
+	comment := ""
+	if len(parts) == 2 {
+		comment = "#" + parts[1]
+	}
+
+	leadingLen := len(body) - len(strings.TrimLeft(body, " \t"))
+	leading := body[:leadingLen]
+	bodyWithoutLeading := body[leadingLen:]
+	bodyTrimmedRight := strings.TrimRight(bodyWithoutLeading, " \t")
+	trailing := bodyWithoutLeading[len(bodyTrimmedRight):]
+	core := strings.TrimSpace(bodyWithoutLeading)
+	if core == "" {
+		return line, false
+	}
+
+	fields := strings.Fields(core)
+	if len(fields) < 3 {
+		return line, false
+	}
+
+	if fields[0] != "deb" && fields[0] != "deb-src" {
+		return line, false
+	}
+
+	suiteIdx := 2
+	if strings.HasPrefix(fields[1], "[") {
+		if len(fields) < 4 {
+			return line, false
+		}
+		suiteIdx = 3
+	}
+
+	suite := fields[suiteIdx]
+	newSuite, suiteChanged := rewriteSuite(suite, current, next)
+	fields[suiteIdx] = newSuite
+
+	compsChanged := false
+	if needsFirmware {
+		compsStart := suiteIdx + 1
+		if compsStart < len(fields) {
+			components := append([]string(nil), fields[compsStart:]...)
+			if stringSliceContains(components, "non-free") && !stringSliceContains(components, "non-free-firmware") {
+				components = append(components, "non-free-firmware")
+				fields = append(append([]string(nil), fields[:compsStart]...), components...)
+				compsChanged = true
+			}
+		}
+	}
+
+	if !suiteChanged && !compsChanged {
+		return line, false
+	}
+
+	newBody := leading + strings.Join(fields, " ")
+	if trailing != "" {
+		newBody += trailing
+	}
+
+	if comment != "" {
+		newBody += comment
+	}
+
+	return newBody, true
+}
+
+func rewriteSuite(suite string, current, next *DebianRelease) (string, bool) {
+	if suite == current.Codename {
+		if suite == next.Codename {
+			return suite, false
+		}
+		return next.Codename, true
+	}
+
+	if current.UpdatesSuite != "" && suite == current.UpdatesSuite {
+		if suite == next.UpdatesSuite {
+			return suite, false
+		}
+		return next.UpdatesSuite, true
+	}
+
+	if current.SecuritySuite != "" && suite == current.SecuritySuite {
+		if suite == next.SecuritySuite {
+			return suite, false
+		}
+		return next.SecuritySuite, true
+	}
+
+	if !strings.Contains(suite, current.Codename) {
+		return suite, false
+	}
+
+	replaced := strings.ReplaceAll(suite, current.Codename, next.Codename)
+	if replaced == suite {
+		return suite, false
+	}
+
+	return replaced, true
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func createBackup(path string, data []byte) error {

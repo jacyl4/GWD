@@ -19,7 +19,7 @@ type App struct {
 func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) *App {
 	log.SetStandardLogger()
 
-	pkgMgr := system.NewDpkgManager(log)
+	pkgMgr := system.NewDpkgManager()
 	repo := downloader.NewRepository(cfg, log)
 
 	return &App{

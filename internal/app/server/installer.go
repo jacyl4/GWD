@@ -55,7 +55,6 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 		{"Validate configuration", i.config.Validate},
 		{"Create working directories", i.createWorkingDirectories},
 		{"Check runtime environment", i.validateEnvironment},
-		{"Configure package manager", i.pkgManager.SetupAptConfiguration},
 	}
 
 	for _, step := range allInstallSetupSteps {
