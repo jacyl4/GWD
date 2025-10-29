@@ -20,8 +20,9 @@ import (
 // Menu is the interactive menu manager
 // Responsible for displaying menus, handling user input, and calling corresponding functional modules
 type Menu struct {
-	config *system.SystemConfig
-	logger *logger.ColoredLogger
+	config         *system.SystemConfig
+	logger         *logger.ColoredLogger
+	installHandler func(*DomainInfo) error
 }
 
 // NewMenu creates a new menu manager instance
@@ -30,6 +31,11 @@ func NewMenu(cfg *system.SystemConfig, log *logger.ColoredLogger) *Menu {
 		config: cfg,
 		logger: log,
 	}
+}
+
+// SetInstallHandler registers the handler that executes the full installation workflow.
+func (m *Menu) SetInstallHandler(handler func(*DomainInfo) error) {
+	m.installHandler = handler
 }
 
 // MenuOption defines a menu option
@@ -449,7 +455,16 @@ func (m *Menu) handleInstallGWD() error {
 	}
 
 	m.logger.Info("Domain: %s, Port: %s", domainInfo.Domain, domainInfo.Port)
-	m.logger.Success("GWD installation completed (simulated)")
+
+	if m.installHandler == nil {
+		return errors.New("installer handler is not configured")
+	}
+
+	if err := m.installHandler(domainInfo); err != nil {
+		return errors.Wrap(err, "GWD installation failed")
+	}
+
+	m.waitForUserInput("\nPress Enter to continue...")
 
 	return nil
 }

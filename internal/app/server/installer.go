@@ -28,12 +28,13 @@ type Installer struct {
 	tcsss      *deployer.Tcsss
 }
 
-// NewInstaller creates a new Installer instance
-func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, pkgMgr *system.DpkgManager, repo *downloader.Repository) *Installer {
+// NewInstaller creates a new Installer instance. Package manager is constructed here
+// to keep server wiring minimal.
+func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *downloader.Repository) *Installer {
 	return &Installer{
 		config:     cfg,
 		logger:     log,
-		pkgManager: pkgMgr,
+        pkgManager: system.NewDpkgManager(),
 		repository: repo,
 		smartdns:   deployer.NewSmartDNS(cfg.GetRepoDir(), log),
 		doh:        deployer.NewDoH(cfg.GetRepoDir(), log),

@@ -17,27 +17,24 @@ type App struct {
 }
 
 func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) *App {
-	log.SetStandardLogger()
-
-	pkgMgr := system.NewDpkgManager()
 	repo := downloader.NewRepository(cfg, log)
 
-	return &App{
-		config:    cfg,
-		logger:    log,
-		menu:      menu.NewMenu(cfg, log),
-		installer: NewInstaller(cfg, log, pkgMgr, repo),
+	menuManager := menu.NewMenu(cfg, log)
+
+	app := &App{
+		config: cfg,
+		logger: log,
+		menu:   menuManager,
 	}
+
+    app.installer = NewInstaller(cfg, log, repo)
+	app.menu.SetInstallHandler(app.InstallGWD)
+
+	return app
 }
 
 func (a *App) Run(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		a.logger.Info("Received shutdown signal")
-		return nil
-	default:
-		return a.menu.ShowMainMenu()
-	}
+    return a.menu.ShowMainMenu()
 }
 
 // InstallGWD executes the full GWD installation process.

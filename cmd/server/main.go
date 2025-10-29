@@ -14,6 +14,7 @@ import (
 
 func main() {
 	log := logger.NewLogger()
+    log.SetStandardLogger()
 	
 	if os.Geteuid() != 0 {
 		log.Fatal("This program requires root privileges to run. Please run with sudo.")

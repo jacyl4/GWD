@@ -70,9 +70,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_RESOURCE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_RESOURCE
 NoNewPrivileges=true
+
+LimitSIGPENDING=infinity
+LimitMSGQUEUE=infinity
 
 RuntimeDirectory=tcsss
 StateDirectory=tcsss
@@ -89,4 +92,5 @@ TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target
+
 `
