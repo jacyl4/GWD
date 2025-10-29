@@ -1,0 +1,37 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 9890,
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "预留变量",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "预留变量"
+        },
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpMptcp": true
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    }
+  ]
+}
+

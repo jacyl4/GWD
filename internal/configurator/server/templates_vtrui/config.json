@@ -1,0 +1,18 @@
+{
+  "log": {
+    "access": "none",
+    "error": "none",
+    "loglevel": "none"
+  },
+  "dns": {
+    "tag": "dnsflow",
+    "disableCache": true,
+    "servers": [
+      "tcp+local://127.0.0.1:53"
+    ]
+  },
+  "routing": {
+    "rules": []
+  }
+}
+
