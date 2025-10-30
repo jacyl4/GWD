@@ -294,7 +294,7 @@ func (m *Menu) promptUserSelection(options []MenuOption) (int, error) {
 	}
 
 	// Determine prefix width for alignment
-	maxPrefixWidth := runewidth.StringWidth("🚪")
+	maxPrefixWidth := 0
 	for _, entry := range entries {
 		if width := runewidth.StringWidth(entry.prefix); width > maxPrefixWidth {
 			maxPrefixWidth = width
@@ -305,22 +305,6 @@ func (m *Menu) promptUserSelection(options []MenuOption) (int, error) {
 	if maxNumberWidth > 0 {
 		numberColumnWidth = maxNumberWidth + 2 // account for ". "
 	}
-
-	exitIcon := "🚪"
-	exitPrefixDisplay := strings.Repeat(" ", maxPrefixWidth)
-
-	exitNumberColumn := exitIcon
-	if numberColumnWidth > 0 {
-		iconWidth := runewidth.StringWidth(exitIcon)
-		pad := numberColumnWidth - iconWidth
-		if pad < 0 {
-			pad = 0
-		}
-		exitNumberColumn = exitIcon + strings.Repeat(" ", pad)
-	}
-
-	// Add exit option first so it becomes the default selection
-	items = append(items, fmt.Sprintf("%s %sExit program", exitPrefixDisplay, exitNumberColumn))
 
 	for _, entry := range entries {
 		prefixDisplay := entry.prefix + strings.Repeat(" ", maxPrefixWidth-runewidth.StringWidth(entry.prefix))
@@ -339,16 +323,17 @@ func (m *Menu) promptUserSelection(options []MenuOption) (int, error) {
 
 	// Create selection prompt
 	prompt := promptui.Select{
-		Label:     "Please select an operation",
-		Items:     items,
-		Size:      10, // Display 10 options, supports scrolling
-		HideHelp:  false,
-		CursorPos: 0, // default highlight Exit program
+		Label:    "Please select an operation",
+		Items:    items,
+		Size:     10, // Display 10 options, supports scrolling
+		HideHelp: false,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}:",
 			Active:   "▶ {{ . | cyan }}",
 			Inactive: "  {{ . }}",
 			Selected: "✅ {{ . | green }}",
+			Help: `Use the arrow keys to navigate: {{ .NextKey }} {{ .PrevKey }} {{ .PageDownKey }} {{ .PageUpKey }}{{ if .Search }} and {{ .SearchKey }} toggles search{{ end }}
+Exit program: Ctrl + C`,
 		},
 	}
 
@@ -357,15 +342,9 @@ func (m *Menu) promptUserSelection(options []MenuOption) (int, error) {
 		return -1, err
 	}
 
-	// If exit option is selected (first entry)
-	if index == 0 {
-		return -1, errors.New("^C") // Simulate Ctrl+C
-	}
-
 	// Return the actual option index
-	adjustedIndex := index - 1
-	if adjustedIndex >= 0 && adjustedIndex < len(enabledIndexes) {
-		return enabledIndexes[adjustedIndex], nil
+	if index >= 0 && index < len(enabledIndexes) {
+		return enabledIndexes[index], nil
 	}
 
 	return -1, errors.New("Invalid selection")
@@ -422,11 +401,6 @@ func (m *Menu) displayEnvironmentInfo(sslExpireDate string) {
 
 	if m.isHAProxyEnabled() {
 		m.logger.White("🟣 [Enabled] HAProxy TCP Port Forwarding")
-	}
-
-	// Display version information
-	if version := m.getCurrentVersion(); version != "" {
-		m.logger.Info("Version: %s", version)
 	}
 }
 
@@ -700,9 +674,21 @@ func (m *Menu) waitForUserInput(message string) {
 
 // isGWDInstalled checks if GWD is installed
 func (m *Menu) isGWDInstalled() bool {
-	versionFile := filepath.Join(m.config.WorkingDir, "version.php")
-	_, err := os.Stat(versionFile)
-	return err == nil
+	// Check for key binaries in either the repository cache or installation targets
+	paths := []string{
+		filepath.Join(m.config.GetRepoDir(), "nginx"),
+		filepath.Join(m.config.GetRepoDir(), "doh-server"),
+		"/usr/local/bin/nginx",
+		"/usr/local/bin/doh-server",
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getServiceStatus gets systemd service status
@@ -788,21 +774,6 @@ func (m *Menu) getKernelVersion() string {
 }
 
 // getCurrentVersion gets current GWD version
-func (m *Menu) getCurrentVersion() string {
-	versionFile := filepath.Join(m.config.WorkingDir, "version.php")
-	content, err := os.ReadFile(versionFile)
-	if err != nil {
-		return ""
-	}
-
-	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 {
-		return ""
-	}
-
-	return strings.TrimSpace(lines[0])
-}
-
 // isWireGuardEnabled checks if WireGuard is enabled
 func (m *Menu) isWireGuardEnabled() bool {
 	cmd := exec.Command("systemctl", "is-active", "wg-quick@wgcf")
