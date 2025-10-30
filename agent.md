@@ -1,13 +1,20 @@
-cat << "EOF" >/opt/de_GWD/tcpTime
-date -s "$(wget -qSO- --max-redirect=0 whatismyip.akamai.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
-[[ $? -ne "0" ]]&& date -s "$(curl -sI cloudflare.com| grep -i '^date:'|cut -d' ' -f2-)"
-hwclock -w
+rm -rf /etc/resolvconf/resolv.conf.d/*
+>/etc/resolvconf/resolv.conf.d/original
+>/etc/resolvconf/resolv.conf.d/base
+>/etc/resolvconf/resolv.conf.d/tail
+rm -rf /etc/resolv.conf
+rm -rf /run/resolvconf/interface
+cat << EOF >/etc/resolvconf/resolv.conf.d/head
+nameserver 127.0.0.1
 EOF
-chmod +x /opt/de_GWD/tcpTime
+if [[ -f "/etc/resolvconf/run/resolv.conf" ]]; then
+ln -sf /etc/resolvconf/run/resolv.conf /etc/resolv.conf
+elif [[ -f "/run/resolvconf/resolv.conf" ]]; then
+ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
+fi
+sed -i '/dns-nameservers /d' /etc/network/interfaces
+resolvconf -u
 
-制作一个 tcp 校时的模块 internal/system/tcptime.go
+新建一个模块 internal/configurator/server/resolvconf.go 将上面脚本的操作转化为 go模块。
 
-用于校准系统的时间，算是 ntp 以外的一种手动方式吧。
-
-
-其中 hwclock -w 这块有没有更通用的方式，因为有些虚拟机是kvm，有些虚拟机可能只是docker
+然后 这个模块需要在 internal/app/server/installer.go 安装序列的 InstallDependencies 后执行。

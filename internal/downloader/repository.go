@@ -15,7 +15,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const archiveBaseURL = "https://raw.githubusercontent.com/jacyl4/GWD/archive"
+const archiveBaseURL = "https://raw.githubusercontent.com/jacyl4/GWD/main/archive"
 
 // Logger abstracts the logging methods used by the downloader package.
 type Logger interface {
@@ -108,11 +108,6 @@ func (r *Repository) DownloadAll() error {
 		if err := r.downloadIfNeeded(target); err != nil {
 			return errors.Wrapf(err, "Failed to download file: %s", target.Name)
 		}
-	}
-
-	// Check and download the version file (special handling)
-	if err := r.updateVersionFile(); err != nil {
-		return errors.Wrap(err, "Failed to update version file")
 	}
 
 	r.logger.ProgressDone("Repository")
@@ -366,112 +361,6 @@ func (r *Repository) doDownload(url, localPath string) error {
 	}
 
 	return nil
-}
-
-// updateVersionFile updates the version file
-// The version file is used to track the currently installed GWD version, supporting auto-update functionality
-func (r *Repository) updateVersionFile() error {
-	versionPath := filepath.Join(r.config.WorkingDir, "version.php")
-
-	// Get local version (if exists)
-	localVersion, _ := r.getLocalVersion(versionPath)
-
-	// Get remote version
-	remoteVersion, err := r.getRemoteVersion()
-	if err != nil {
-		return errors.Wrap(err, "Failed to get remote version")
-	}
-
-	// Compare versions, update if different
-	if localVersion != remoteVersion {
-		r.logger.Info("Version update detected: %s -> %s", localVersion, remoteVersion)
-
-		tempPath := filepath.Join(r.config.TmpDir, "version.php")
-		url := fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/version.php",
-			r.config.Branch)
-
-		// Download new version file
-		if err := r.downloadFile(url, tempPath); err != nil {
-			return errors.Wrap(err, "Failed to download version file")
-		}
-
-		// Validate file size (version file should be small but not empty)
-		if valid, _ := r.validator.ValidateFileSize(tempPath, 4*1024); !valid {
-			os.Remove(tempPath)
-			return errors.New("Version file size abnormal")
-		}
-
-		// Move to final location
-		if err := os.Rename(tempPath, versionPath); err != nil {
-			return errors.Wrap(err, "Failed to move version file")
-		}
-
-		r.logger.Success("Version file updated successfully")
-	}
-
-	return nil
-}
-
-// getLocalVersion reads the first line of the local version file
-// The first line of the version file contains the current version number
-func (r *Repository) getLocalVersion(versionPath string) (string, error) {
-	content, err := os.ReadFile(versionPath)
-	if err != nil {
-		return "", err
-	}
-
-	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 {
-		return "", errors.New("Version file is empty")
-	}
-
-	return strings.TrimSpace(lines[0]), nil
-}
-
-// getRemoteVersion fetches version information from the remote repository
-func (r *Repository) getRemoteVersion() (string, error) {
-	url := "https://raw.githubusercontent.com/jacyl4/de_GWD/main/version.php"
-
-	resp, err := r.client.Get(url)
-	if err != nil {
-		return "", errors.Wrap(err, "Failed to request remote version")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", errors.Errorf("Failed to get remote version, status code: %d", resp.StatusCode)
-	}
-
-	content, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", errors.Wrap(err, "Failed to read remote version content")
-	}
-
-	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 {
-		return "", errors.New("Remote version file is empty")
-	}
-
-	return strings.TrimSpace(lines[0]), nil
-}
-
-// CheckForUpdates checks for available updates
-// Compares local and remote versions, returns whether an update is needed
-func (r *Repository) CheckForUpdates() (bool, string, string, error) {
-	versionPath := filepath.Join(r.config.WorkingDir, "version.php")
-
-	localVersion, err := r.getLocalVersion(versionPath)
-	if err != nil {
-		return false, "", "", errors.Wrap(err, "Failed to get local version")
-	}
-
-	remoteVersion, err := r.getRemoteVersion()
-	if err != nil {
-		return false, "", "", errors.Wrap(err, "Failed to get remote version")
-	}
-
-	needsUpdate := localVersion != remoteVersion
-	return needsUpdate, localVersion, remoteVersion, nil
 }
 
 // GetDownloadProgress retrieves download progress information

@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	configserver "GWD/internal/configurator/server"
 	"GWD/internal/deployer"
 	"GWD/internal/downloader"
 	"GWD/internal/logger"
@@ -34,7 +35,7 @@ func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *dow
 	return &Installer{
 		config:     cfg,
 		logger:     log,
-        pkgManager: system.NewDpkgManager(),
+		pkgManager: system.NewDpkgManager(),
 		repository: repo,
 		smartdns:   deployer.NewSmartDNS(cfg.GetRepoDir(), log),
 		doh:        deployer.NewDoH(cfg.GetRepoDir(), log),
@@ -73,6 +74,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 	}{
 		{"Upgrade system packages", i.pkgManager.UpgradeSystem},
 		{"Install system dependencies", i.pkgManager.InstallDependencies},
+		{"Configure resolvconf", configserver.EnsureResolvconfConfig},
 		{"Download repository files", i.repository.DownloadAll},
 		{"Install DoH server", func() error { return i.installDOHServer() }},
 		{"Install Nginx", func() error { return i.installNginx() }},
@@ -180,7 +182,6 @@ func (i *Installer) validateOperatingSystem() error {
 func (i *Installer) validateNetworkConnectivity() error {
 	// Test critical network connections
 	testURLs := []string{
-		"https://raw.githubusercontent.com/jacyl4/de_GWD/main/version.php",
 		"https://cloudflare.com",
 		"https://google.com",
 	}

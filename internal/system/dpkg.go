@@ -26,7 +26,7 @@ var RequiredPackages = []string{
 	"idn2",
 	"dns-root-data",
 	"netcat-openbsd",
-	"dnsutils",
+	"bind9-dnsutils",
 	"net-tools",
 	"resolvconf",
 	"nftables",
