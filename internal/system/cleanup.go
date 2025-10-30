@@ -8,7 +8,6 @@ import (
 
 // PackagesToRemove are conflicting software packages that need to be uninstalled.
 var PackagesToRemove = []string{
-	"ipset",
 	"haveged",
 	"subversion",
 	"os-prober",

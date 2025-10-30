@@ -5,21 +5,33 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"GWD/internal/logger"
 	"GWD/internal/system"
 
 	"github.com/pkg/errors"
 )
 
+const archiveBaseURL = "https://raw.githubusercontent.com/jacyl4/GWD/archive"
+
+// Logger abstracts the logging methods used by the downloader package.
+type Logger interface {
+	Debug(format string, args ...interface{})
+	Info(format string, args ...interface{})
+	Warn(format string, args ...interface{})
+	Success(format string, args ...interface{})
+	Progress(operation string)
+	ProgressDone(operation string)
+}
+
 // Repository is the repository download manager
 // Manages the entire lifecycle of downloading files from a GitHub repository
 type Repository struct {
 	config    *system.SystemConfig
-	logger    *logger.ColoredLogger
+	logger    Logger
 	validator *Validator
 	client    *http.Client
 }
@@ -50,7 +62,7 @@ type DownloadTarget struct {
 }
 
 // NewRepository creates a new repository manager instance
-func NewRepository(cfg *system.SystemConfig, log *logger.ColoredLogger) *Repository {
+func NewRepository(cfg *system.SystemConfig, log Logger) *Repository {
 	// Configure HTTP client for optimized download performance and reliability
 	client := &http.Client{
 		Timeout: 300 * time.Second, // 5-minute timeout for large file downloads
@@ -115,24 +127,18 @@ func (r *Repository) fetchHashValues() (map[string]string, error) {
 	// Define all files for which hash values need to be fetched
 	// Each .sha256sum file contains the hash value for the corresponding component
 	hashFiles := map[string]string{
-		"GWD":        fmt.Sprintf("GWD_%s.zip.sha256sum", r.config.Architecture),
-		"doh_server": fmt.Sprintf("doh/doh_s_%s.sha256sum", r.config.Architecture),
-		"nginx":      fmt.Sprintf("nginx/nginx_%s.sha256sum", r.config.Architecture),
-		"nginxConf":  "nginx/nginxConf.zip.sha256sum",
-		"sample":     "server/sample.zip.sha256sum",
+		"doh":       fmt.Sprintf("doh/%s.sha256sum", r.dohFileName()),
+		"nginx":     fmt.Sprintf("nginx/%s.sha256sum", r.nginxFileName()),
+		"nginxConf": "nginx/nginxConf.zip.sha256sum",
+		"sample":    "sample.zip.sha256sum",
+		"smartdns":  fmt.Sprintf("smartdns/%s.sha256sum", r.smartdnsFileName()),
+		"tcsss":     fmt.Sprintf("tcsss/%s.sha256sum", r.tcsssFileName()),
+		"vtrui":     fmt.Sprintf("vtrui/%s.sha256sum", r.vtruiFileName()),
 	}
 
 	// Concurrently fetch all hash values to improve download efficiency
 	for name, hashFile := range hashFiles {
-		url := fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/resource/%s",
-			r.config.Branch, hashFile)
-
-		// If it's the main GWD component, the URL path is slightly different
-		if name == "GWD" {
-			url = fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/%s",
-				r.config.Branch, hashFile)
-		}
-
+		url := fmt.Sprintf("%s/%s", archiveBaseURL, hashFile)
 		hash, err := r.fetchHash(url)
 		if err != nil {
 			return nil, errors.Wrapf(err, "Failed to fetch hash for %s", name)
@@ -175,46 +181,64 @@ func (r *Repository) buildDownloadTargets(hashes map[string]string) []DownloadTa
 	return []DownloadTarget{
 		{
 			Name:         "DoH Server",
-			URL:          fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/resource/doh/doh_s_%s", r.config.Branch, r.config.Architecture),
-			ExpectedHash: hashes["doh_server"],
-			LocalPath:    "/opt/GWD/doh-server",
-			TempPath:     filepath.Join(r.config.TmpDir, "doh-server"),
+			URL:          r.archiveURL("doh", r.dohFileName()),
+			ExpectedHash: hashes["doh"],
+			LocalPath:    filepath.Join(repoDir, "doh-server"),
+			TempPath:     r.config.GetTempFilePath("doh-server.tmp"),
 			MinSize:      1024 * 1024, // 1MB, minimum reasonable size for DoH server binary
 			Executable:   true,
 		},
 		{
 			Name:         "Nginx",
-			URL:          fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/resource/nginx/nginx_%s", r.config.Branch, r.config.Architecture),
+			URL:          r.archiveURL("nginx", r.nginxFileName()),
 			ExpectedHash: hashes["nginx"],
-			LocalPath:    "/usr/sbin/nginx",
-			TempPath:     filepath.Join(r.config.TmpDir, "nginx"),
+			LocalPath:    filepath.Join(repoDir, "nginx"),
+			TempPath:     r.config.GetTempFilePath("nginx.tmp"),
 			MinSize:      1024 * 1024 * 2, // 2MB, minimum reasonable size for Nginx binary
 			Executable:   true,
 		},
 		{
-			Name:         "GWD Main Package",
-			URL:          fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/GWD_%s.zip", r.config.Branch, r.config.Architecture),
-			ExpectedHash: hashes["GWD"],
-			LocalPath:    filepath.Join(repoDir, "GWD.zip"),
-			TempPath:     filepath.Join(r.config.TmpDir, "GWD.zip"),
-			MinSize:      1024 * 1024 * 5, // 5MB, minimum reasonable size for main package
-			Executable:   false,
+			Name:         "SmartDNS",
+			URL:          r.archiveURL("smartdns", r.smartdnsFileName()),
+			ExpectedHash: hashes["smartdns"],
+			LocalPath:    filepath.Join(repoDir, "smartdns"),
+			TempPath:     r.config.GetTempFilePath("smartdns.tmp"),
+			MinSize:      512 * 1024, // 512KB, minimum reasonable size for SmartDNS binary
+			Executable:   true,
+		},
+		{
+			Name:         "TCSSS",
+			URL:          r.archiveURL("tcsss", r.tcsssFileName()),
+			ExpectedHash: hashes["tcsss"],
+			LocalPath:    filepath.Join(repoDir, "tcsss"),
+			TempPath:     r.config.GetTempFilePath("tcsss.tmp"),
+			MinSize:      512 * 1024, // 512KB, minimum reasonable size for tcsss binary
+			Executable:   true,
+		},
+		{
+			Name:         "vtrui",
+			URL:          r.archiveURL("vtrui", r.vtruiFileName()),
+			ExpectedHash: hashes["vtrui"],
+			LocalPath:    filepath.Join(repoDir, "vtrui"),
+			TempPath:     r.config.GetTempFilePath("vtrui.tmp"),
+			MinSize:      512 * 1024, // 512KB, minimum reasonable size for vtrui binary
+			Executable:   true,
 		},
 		{
 			Name:         "Nginx Configuration",
-			URL:          fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/resource/nginx/nginxConf.zip", r.config.Branch),
+			URL:          r.archiveURL("nginx", "nginxConf.zip"),
 			ExpectedHash: hashes["nginxConf"],
 			LocalPath:    filepath.Join(repoDir, "nginxConf.zip"),
-			TempPath:     filepath.Join(r.config.TmpDir, "nginxConf.zip"),
+			TempPath:     r.config.GetTempFilePath("nginxConf.zip.tmp"),
 			MinSize:      1024 * 10, // 10KB, minimum reasonable size for configuration file
 			Executable:   false,
 		},
 		{
 			Name:         "Sample Configuration",
-			URL:          fmt.Sprintf("https://raw.githubusercontent.com/jacyl4/GWD/%s/resource/server/sample.zip", r.config.Branch),
+			URL:          r.archiveURL("sample.zip"),
 			ExpectedHash: hashes["sample"],
 			LocalPath:    filepath.Join(repoDir, "sample.zip"),
-			TempPath:     filepath.Join(r.config.TmpDir, "sample.zip"),
+			TempPath:     r.config.GetTempFilePath("sample.zip.tmp"),
 			MinSize:      1024 * 5, // 5KB, minimum reasonable size for sample configuration
 			Executable:   false,
 		},
@@ -458,6 +482,47 @@ type DownloadProgress struct {
 	CurrentNum  int    // Current file number
 	BytesTotal  int64  // Total bytes
 	BytesDone   int64  // Bytes downloaded
+}
+
+func (r *Repository) archiveURL(parts ...string) string {
+	joined := path.Join(parts...)
+	joined = strings.TrimPrefix(joined, "/")
+	return fmt.Sprintf("%s/%s", archiveBaseURL, joined)
+}
+
+func (r *Repository) dohFileName() string {
+	if r.config.Architecture == "arm64" {
+		return "doh_s_arm64"
+	}
+	return "doh_s"
+}
+
+func (r *Repository) nginxFileName() string {
+	if r.config.Architecture == "arm64" {
+		return "nginx_arm64"
+	}
+	return "nginx"
+}
+
+func (r *Repository) smartdnsFileName() string {
+	if r.config.Architecture == "arm64" {
+		return "smartdns-aarch64"
+	}
+	return "smartdns-x86_64"
+}
+
+func (r *Repository) tcsssFileName() string {
+	if r.config.Architecture == "arm64" {
+		return "tcsss-arm64"
+	}
+	return "tcsss"
+}
+
+func (r *Repository) vtruiFileName() string {
+	if r.config.Architecture == "arm64" {
+		return "vtrui_arm64"
+	}
+	return "vtrui"
 }
 
 // downloadFileWithProgress downloads a file with progress display

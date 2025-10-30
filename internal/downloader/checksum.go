@@ -7,18 +7,16 @@ import (
 	"os"
 	"strings"
 
-	"GWD/internal/logger"
-
 	"github.com/pkg/errors"
 )
 
 // Validator validates downloaded files against expected metrics.
 type Validator struct {
-	logger *logger.ColoredLogger
+	logger Logger
 }
 
 // NewValidator creates a new Validator instance.
-func NewValidator(log *logger.ColoredLogger) *Validator {
+func NewValidator(log Logger) *Validator {
 	return &Validator{
 		logger: log,
 	}

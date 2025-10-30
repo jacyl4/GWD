@@ -71,18 +71,15 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 		name string
 		fn   func() error
 	}{
-		{"Install system dependencies", i.pkgManager.InstallDependencies},
 		{"Upgrade system packages", i.pkgManager.UpgradeSystem},
+		{"Install system dependencies", i.pkgManager.InstallDependencies},
 		{"Download repository files", i.repository.DownloadAll},
 		{"Install DoH server", func() error { return i.installDOHServer() }},
 		{"Install Nginx", func() error { return i.installNginx() }},
-		{"Install Xray", func() error { return i.installXray() }},
 		{"Install tcsss", func() error { return i.installTcsss() }},
 		{"Install vtrui", func() error { return i.installVtrui() }},
 		{"Configure SSL certificate", func() error { return i.configureTLS(domainConfig) }},
 		{"Configure Nginx Web", func() error { return i.configureNginxWeb() }},
-		{"Configure Xray inbound", func() error { return i.configureXrayInbound(domainConfig) }},
-		{"Configure Xray outbound", func() error { return i.configureXrayOutbound() }},
 		{"Post-installation configuration", func() error { return i.postInstallConfiguration() }},
 	}
 
@@ -243,12 +240,12 @@ func (i *Installer) validateDiskSpace() error {
 // installDOHServer installs the DoH (DNS-over-HTTPS) server
 func (i *Installer) installDOHServer() error {
 	i.logger.Info("Configuring DoH server...")
-	if err := i.doh.Install(); err != nil {
-		return errors.Wrap(err, "DoH deployment failed")
-	}
-
 	if err := i.smartdns.Install(); err != nil {
 		return errors.Wrap(err, "SmartDNS deployment failed")
+	}
+
+	if err := i.doh.Install(); err != nil {
+		return errors.Wrap(err, "DoH deployment failed")
 	}
 
 	return nil
@@ -264,10 +261,7 @@ func (i *Installer) installNginx() error {
 }
 
 // installXray installs and configures the Xray proxy
-func (i *Installer) installXray() error {
-	i.logger.Info("Configuring Xray proxy...")
-	return nil
-}
+// Xray support removed
 
 // installTcsss installs and configures the tcsss service
 func (i *Installer) installTcsss() error {
@@ -315,18 +309,6 @@ func (i *Installer) setupCloudflareSSL(domainConfig *menu.DomainInfo) error {
 // configureNginxWeb configures Nginx Web service
 func (i *Installer) configureNginxWeb() error {
 	i.logger.Info("Configuring Nginx Web service...")
-	return nil
-}
-
-// configureXrayInbound configures Xray inbound rules
-func (i *Installer) configureXrayInbound(domainConfig *menu.DomainInfo) error {
-	i.logger.Info("Configuring Xray inbound rules...")
-	return nil
-}
-
-// configureXrayOutbound configures Xray outbound rules
-func (i *Installer) configureXrayOutbound() error {
-	i.logger.Info("Configuring Xray outbound rules...")
 	return nil
 }
 
