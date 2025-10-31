@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"os/exec"
 
 	"github.com/pkg/errors"
 )
@@ -51,6 +52,14 @@ func EnsureUnboundConfig() error {
 	if err := os.WriteFile("/etc/unbound/unbound.conf", []byte(unboundConfigContent), 0644); err != nil {
 		return errors.Wrapf(err, "failed to write Unbound configuration file /etc/unbound/unbound.conf")
 	}
+
+    if err := exec.Command("systemctl", "enable", "unbound").Run(); err != nil {
+        return errors.Wrap(err, "failed to enable unbound service")
+    }
+
+    if err := exec.Command("systemctl", "restart", "unbound").Run(); err != nil {
+        return errors.Wrap(err, "failed to restart unbound service")
+    }
 
 	return nil
 }
