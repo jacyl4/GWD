@@ -29,6 +29,7 @@ var RequiredPackages = []string{
 	"bind9-dnsutils",
 	"net-tools",
 	"resolvconf",
+	"unbound",
 	"nftables",
 	"ca-certificates",
 	"apt-transport-https",

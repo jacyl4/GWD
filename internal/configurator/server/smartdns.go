@@ -8,18 +8,6 @@ import (
 
 const smartDNSConfigDir = "/opt/GWD/smartdns"
 
-func EnsureSmartDNSConfig() error {
-	if err := os.MkdirAll(smartDNSConfigDir, 0755); err != nil {
-		return errors.Wrapf(err, "failed to create SmartDNS configuration directory %s", smartDNSConfigDir)
-	}
-
-	if err := os.WriteFile("/opt/GWD/smartdns/smartdns.conf", []byte(smartDNSConfigContent), 0644); err != nil {
-		return errors.Wrapf(err, "failed to write SmartDNS configuration file /opt/GWD/smartdns/smartdns.conf")
-	}
-
-	return nil
-}
-
 const smartDNSConfigContent = `bind 127.0.0.1:53
 bind-tcp 127.0.0.1:53
 
@@ -52,3 +40,16 @@ tcp-idle 120
 force-AAAA-SOA yes
 dualstack-ip-selection no
 `
+
+func EnsureSmartDNSConfig() error {
+	if err := os.MkdirAll(smartDNSConfigDir, 0755); err != nil {
+		return errors.Wrapf(err, "failed to create SmartDNS configuration directory %s", smartDNSConfigDir)
+	}
+
+	if err := os.WriteFile("/opt/GWD/smartdns/smartdns.conf", []byte(smartDNSConfigContent), 0644); err != nil {
+		return errors.Wrapf(err, "failed to write SmartDNS configuration file /opt/GWD/smartdns/smartdns.conf")
+	}
+
+	return nil
+}
+

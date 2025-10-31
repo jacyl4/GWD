@@ -74,6 +74,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 	}{
 		{"Upgrade system packages", i.pkgManager.UpgradeSystem},
 		{"Install system dependencies", i.pkgManager.InstallDependencies},
+		{"Configure unbound", configserver.EnsureUnboundConfig},
 		{"Configure resolvconf", configserver.EnsureResolvconfConfig},
 		{"Download repository files", i.repository.DownloadAll},
 		{"Install DoH server", func() error { return i.installDOHServer() }},

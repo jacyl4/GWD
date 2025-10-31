@@ -21,7 +21,7 @@ const (
 	etcResolvConfPath          = "/etc/resolv.conf"
 	systemInterfacesConfigFile = "/etc/network/interfaces"
 
-	resolvconfHeadContent = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+	resolvconfHeadContent = "nameserver 127.0.0.1\n"
 )
 
 // EnsureResolvconfConfig prepares the system resolvconf configuration to use the local resolver.
