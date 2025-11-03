@@ -1,0 +1,23 @@
+[Unit]
+Description=NGINX
+After=network.target
+
+[Service]
+Type=forking
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+Nice=-9
+
+PIDFile=/run/nginx.pid
+ExecStart=/usr/local/bin/nginx -c /etc/nginx/nginx.conf
+ExecReload=/usr/local/bin/nginx -s reload
+ExecStop=/bin/kill -s QUIT $MAINPID
+KillMode=mixed
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=23
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

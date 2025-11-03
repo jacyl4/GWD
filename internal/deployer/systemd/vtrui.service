@@ -1,0 +1,21 @@
+[Unit]
+Description=vtrui
+After=network.target nss-lookup.target
+
+[Service]
+User=www-data
+ProtectSystem=strict
+PrivateTmp=yes
+NoNewPrivileges=yes
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+Nice=-8
+
+ExecStart=/usr/local/bin/vtrui run -confdir /opt/GWD/vtrui
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=23
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

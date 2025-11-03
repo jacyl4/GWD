@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/sha256"
+	stdErrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,82 +11,62 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Validator validates downloaded files against expected metrics.
-type Validator struct {
-	logger Logger
-}
-
-// NewValidator creates a new Validator instance.
-func NewValidator(log Logger) *Validator {
-	return &Validator{
-		logger: log,
+// CalculateSHA256 returns the SHA256 checksum for the provided reader.
+func CalculateSHA256(r io.Reader) (string, error) {
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, r); err != nil {
+		return "", errors.Wrap(err, "failed to read data for checksum")
 	}
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
 
-// ValidateFile compares the file hash with the expected hash string.
-func (v *Validator) ValidateFile(filePath, expectedHash string) (bool, error) {
-	expectedHash = strings.ToLower(strings.TrimSpace(expectedHash))
-
-	actualHash, err := v.calculateSHA256(filePath)
+// CalculateFileChecksum opens the supplied path via the provided filesystem and returns its SHA256 hash.
+func CalculateFileChecksum(fs FileSystem, filePath string) (string, error) {
+	file, err := fs.Open(filePath)
 	if err != nil {
-		return false, errors.Wrapf(err, "Failed to calculate file hash: %s", filePath)
-	}
-
-	match := actualHash == expectedHash
-
-	if match {
-		v.logger.Debug("File validation successful: %s", filePath)
-	} else {
-		v.logger.Warn("File validation failed: %s", filePath)
-		v.logger.Debug("Expected hash: %s", expectedHash)
-		v.logger.Debug("Actual hash: %s", actualHash)
-	}
-
-	return match, nil
-}
-
-func (v *Validator) calculateSHA256(filePath string) (string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", errors.Wrapf(err, "Failed to open file: %s", filePath)
+		return "", errors.Wrapf(err, "failed to open file: %s", filePath)
 	}
 	defer file.Close()
 
-	hasher := sha256.New()
-
-	if _, err := io.Copy(hasher, file); err != nil {
-		return "", errors.Wrapf(err, "Failed to read file content: %s", filePath)
-	}
-
-	hash := fmt.Sprintf("%x", hasher.Sum(nil))
-	return hash, nil
+	return CalculateSHA256(file)
 }
 
-// ValidateDownload checks size and hash for the downloaded file.
-func (v *Validator) VerifyDownload(filePath, expectedHash string, minSize int64) error {
-	stat, err := os.Stat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return errors.Errorf("Downloaded file does not exist: %s", filePath)
-		}
-		return errors.Wrapf(err, "Failed to inspect downloaded file: %s", filePath)
+// ValidateChecksum ensures that the file at filePath matches the expected hash value.
+func ValidateChecksum(fs FileSystem, filePath, expectedHash string) error {
+	expected := strings.ToLower(strings.TrimSpace(expectedHash))
+	if expected == "" {
+		return errors.New("expected checksum is empty")
 	}
 
-	if minSize > 0 {
-		size := stat.Size()
-		if size < minSize {
-			v.logger.Warn("File size validation failed: %s (size: %d, minimum required: %d)",
-				filePath, size, minSize)
-			return errors.Errorf("File size does not meet requirements: %s", filePath)
-		}
+	actual, err := CalculateFileChecksum(fs, filePath)
+	if err != nil {
+		return err
 	}
 
-	valid, err := v.ValidateFile(filePath, expectedHash)
-	if err != nil {
-		return errors.Wrap(err, "Hash validation failed")
+	if actual != expected {
+		return errors.Errorf("checksum mismatch for %s: expected %s, got %s", filePath, expected, actual)
 	}
-	if !valid {
-		return errors.Errorf("File hash validation failed: %s", filePath)
+
+	return nil
+}
+
+// ValidateFileSize ensures that the file meets the specified minimum size.
+func ValidateFileSize(fs FileSystem, filePath string, minSize int64) error {
+	if minSize <= 0 {
+		return nil
+	}
+
+	info, err := fs.Stat(filePath)
+	if err != nil {
+		if stdErrors.Is(err, os.ErrNotExist) {
+			return errors.Errorf("file does not exist: %s", filePath)
+		}
+		return errors.Wrapf(err, "failed to stat file: %s", filePath)
+	}
+
+	size := info.Size()
+	if size < minSize {
+		return errors.Errorf("file size %d bytes is less than minimum %d bytes (%s)", size, minSize, filePath)
 	}
 
 	return nil

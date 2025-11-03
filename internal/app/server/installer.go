@@ -12,6 +12,7 @@ import (
 	serverdownloader "GWD/internal/downloader/server"
 	"GWD/internal/logger"
 	menu "GWD/internal/menu/server"
+	"GWD/internal/pkgmgr/dpkg"
 	"GWD/internal/system"
 
 	"github.com/pkg/errors"
@@ -20,12 +21,12 @@ import (
 type Installer struct {
 	config     *system.SystemConfig
 	logger     *logger.ColoredLogger
-	pkgManager *system.DpkgManager
+	pkgManager *dpkg.Manager
 	repository *serverdownloader.Downloader
-	doh        *deployer.DoH
-	nginx      *deployer.Nginx
-	vtrui      *deployer.Vtrui
-	tcsss      *deployer.Tcsss
+	doh        deployer.Component
+	nginx      deployer.Component
+	vtrui      deployer.Component
+	tcsss      deployer.Component
 }
 
 // NewInstaller creates a new Installer instance. Package manager is constructed here
@@ -34,12 +35,12 @@ func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *ser
 	return &Installer{
 		config:     cfg,
 		logger:     log,
-		pkgManager: system.NewDpkgManager(),
+		pkgManager: dpkg.NewManager(nil),
 		repository: repo,
-		doh:        deployer.NewDoH(cfg.GetRepoDir(), log),
-		nginx:      deployer.NewNginx(cfg.GetRepoDir(), log),
-		vtrui:      deployer.NewVtrui(cfg.GetRepoDir(), log),
-		tcsss:      deployer.NewTcsss(cfg.GetRepoDir(), log),
+		doh:        deployer.NewDoH(cfg.GetRepoDir()),
+		nginx:      deployer.NewNginx(cfg.GetRepoDir()),
+		vtrui:      deployer.NewVtrui(cfg.GetRepoDir()),
+		tcsss:      deployer.NewTcsss(cfg.GetRepoDir()),
 	}
 }
 
@@ -70,12 +71,14 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 	}{
 		{"Upgrade system packages", i.pkgManager.UpgradeSystem},
 		{"Install system dependencies", i.pkgManager.InstallDependencies},
+		{"Set timezone to Asia/Shanghai", configserver.EnsureTimezoneShanghai},
+		{"Configure rng-tools and chrony", configserver.EnsureEntropyAndTimeConfigured},
 		{"Configure unbound", configserver.EnsureUnboundConfig},
 		{"Configure resolvconf", configserver.EnsureResolvconfConfig},
 		{"Download repository files", i.repository.DownloadAll},
+		{"Install tcsss", func() error { return i.installTcsss() }},
 		{"Install DoH server", func() error { return i.installDOHServer() }},
 		{"Install Nginx", func() error { return i.installNginx() }},
-		{"Install tcsss", func() error { return i.installTcsss() }},
 		{"Install vtrui", func() error { return i.installVtrui() }},
 		{"Configure SSL certificate", func() error { return i.configureTLS(domainConfig) }},
 		{"Configure Nginx Web", func() error { return i.configureNginxWeb() }},
@@ -241,6 +244,9 @@ func (i *Installer) installDOHServer() error {
 	if err := i.doh.Install(); err != nil {
 		return errors.Wrap(err, "DoH deployment failed")
 	}
+	if err := i.doh.Validate(); err != nil {
+		return errors.Wrap(err, "DoH validation failed")
+	}
 
 	return nil
 }
@@ -250,6 +256,9 @@ func (i *Installer) installNginx() error {
 	i.logger.Info("Configuring Nginx server...")
 	if err := i.nginx.Install(); err != nil {
 		return errors.Wrap(err, "Nginx deployment failed")
+	}
+	if err := i.nginx.Validate(); err != nil {
+		return errors.Wrap(err, "Nginx validation failed")
 	}
 	return nil
 }
@@ -263,6 +272,9 @@ func (i *Installer) installTcsss() error {
 	if err := i.tcsss.Install(); err != nil {
 		return errors.Wrap(err, "tcsss deployment failed")
 	}
+	if err := i.tcsss.Validate(); err != nil {
+		return errors.Wrap(err, "tcsss validation failed")
+	}
 	return nil
 }
 
@@ -271,6 +283,9 @@ func (i *Installer) installVtrui() error {
 	i.logger.Info("Configuring vtrui service...")
 	if err := i.vtrui.Install(); err != nil {
 		return errors.Wrap(err, "vtrui deployment failed")
+	}
+	if err := i.vtrui.Validate(); err != nil {
+		return errors.Wrap(err, "vtrui validation failed")
 	}
 	return nil
 }

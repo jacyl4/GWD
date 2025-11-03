@@ -1,0 +1,16 @@
+# Default nftables configuration for GWD firewall management.
+# This file is not yet consumed programmatically but documents the declarative
+# shape that future configuration loading will follow.
+table: gwd
+flowtable: gwd_ft
+lan_set: gwd_lan_cidrs
+input_chain: gwd_input
+forward_chain: gwd_forward
+output_chain: gwd_output
+input_bypass_set: gwd_input_bypass_ifaces
+forward_bypass_set: gwd_forward_bypass_ifaces
+lan_cidrs:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 100.64.0.0/10

@@ -11,11 +11,10 @@ import (
 	"GWD/internal/system"
 )
 
-
 func main() {
 	log := logger.NewLogger()
-    log.SetStandardLogger()
-	
+	log.SetStandardLogger()
+
 	if os.Geteuid() != 0 {
 		log.Fatal("This program requires root privileges to run. Please run with sudo.")
 	}
@@ -25,7 +24,10 @@ func main() {
 		log.Fatal("System detection failed: %v", err)
 	}
 
-	application := app.NewServer(cfg, log)
+	application, err := app.NewServer(cfg, log)
+	if err != nil {
+		log.Fatal("Failed to initialise server: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

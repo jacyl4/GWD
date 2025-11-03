@@ -1,0 +1,15 @@
+components:
+  - name: "doh-server"
+    display_name: "DoH Server"
+    min_size: 1048576
+    executable: true
+    paths:
+      amd64: "doh/doh_s"
+      arm64: "doh/doh_s_arm64"
+
+  - name: "sample.zip"
+    display_name: "Sample Configuration"
+    min_size: 5120
+    executable: false
+    paths:
+      all: "sample.zip"

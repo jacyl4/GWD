@@ -1,0 +1,8 @@
+# Default network time sources and options for the timesync module.
+# Currently informational; future work will hydrate Options from this file.
+sources:
+  - https://whatismyip.akamai.com/
+  - https://cloudflare.com/
+  - https://time.cloudflare.com/
+timeout: 5s
+sync_hardware_clock: true

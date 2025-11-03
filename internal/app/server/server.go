@@ -16,8 +16,11 @@ type App struct {
 	installer *Installer
 }
 
-func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) *App {
-	repo := serverdownloader.New(cfg, log)
+func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) (*App, error) {
+	repo, err := serverdownloader.New(cfg, log)
+	if err != nil {
+		return nil, err
+	}
 
 	menuManager := menu.NewMenu(cfg, log)
 
@@ -30,7 +33,7 @@ func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) *App {
 	app.installer = NewInstaller(cfg, log, repo)
 	app.menu.SetInstallHandler(app.InstallGWD)
 
-	return app
+	return app, nil
 }
 
 func (a *App) Run(ctx context.Context) error {

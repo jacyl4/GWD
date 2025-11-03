@@ -1,0 +1,19 @@
+[Unit]
+Description=DNS-over-HTTPS server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Nice=-8
+
+ExecStart=/usr/local/bin/doh-server -conf '{{ .ConfigPath }}'
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=23
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

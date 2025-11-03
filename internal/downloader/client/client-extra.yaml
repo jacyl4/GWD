@@ -1,0 +1,8 @@
+components:
+  - name: "smartdns"
+    display_name: "SmartDNS"
+    min_size: 524288
+    executable: true
+    paths:
+      amd64: "smartdns/smartdns-x86_64"
+      arm64: "smartdns/smartdns-aarch64"

@@ -10,6 +10,7 @@ require (
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42
 	github.com/pkg/errors v0.9.1
 	golang.org/x/sys v0.36.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.39.1
 )
 

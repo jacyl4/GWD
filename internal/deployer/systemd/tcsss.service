@@ -1,0 +1,29 @@
+[Unit]
+Description=Traffic Control Smart Shaping Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_RESOURCE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_RESOURCE
+NoNewPrivileges=true
+
+LimitSIGPENDING=infinity
+LimitMSGQUEUE=infinity
+
+RuntimeDirectory=tcsss
+StateDirectory=tcsss
+LogsDirectory=tcsss
+StandardOutput=journal
+StandardError=journal
+
+ExecStart=/usr/local/bin/tcsss s
+ExecStop=/bin/kill -s SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=23
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
