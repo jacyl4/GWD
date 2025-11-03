@@ -11,6 +11,7 @@ import (
 
 	"GWD/internal/logger"
 	"GWD/internal/system"
+	"GWD/internal/ui"
 
 	"github.com/manifoldco/promptui"
 	runewidth "github.com/mattn/go-runewidth"
@@ -22,14 +23,16 @@ import (
 type Menu struct {
 	config         *system.SystemConfig
 	logger         *logger.ColoredLogger
+	printer        *ui.Printer
 	installHandler func(*DomainInfo) error
 }
 
 // NewMenu creates a new menu manager instance
 func NewMenu(cfg *system.SystemConfig, log *logger.ColoredLogger) *Menu {
 	return &Menu{
-		config: cfg,
-		logger: log,
+		config:  cfg,
+		logger:  log,
+		printer: ui.NewPrinter(),
 	}
 }
 
@@ -60,7 +63,7 @@ func (m *Menu) ShowMainMenu() error {
 		}
 
 		// Display banner
-		m.logger.PrintBanner()
+		m.printer.PrintBanner()
 
 		// Build menu options based on environment type
 		var options []MenuOption
@@ -378,20 +381,35 @@ func (m *Menu) displayServiceStatus() {
 		if serviceName == "" {
 			// Special handling for auto-update status
 			status := "disabled"
-			m.logger.StatusCheck(displayName, status)
+			m.printer.PrintServiceStatus(displayName, mapServiceStatus(status))
 		} else {
 			status := m.getServiceStatus(serviceName)
-			m.logger.StatusCheck(displayName, status)
+			m.printer.PrintServiceStatus(displayName, mapServiceStatus(status))
 		}
+	}
+}
+
+func mapServiceStatus(status string) ui.ServiceStatus {
+	switch status {
+	case "active":
+		return ui.StatusActive
+	case "inactive":
+		return ui.StatusInactive
+	case "not-installed":
+		return ui.StatusNotInstalled
+	case "disabled":
+		return ui.StatusDisabled
+	default:
+		return ui.StatusUnknown
 	}
 }
 
 // displayEnvironmentInfo displays environment information
 func (m *Menu) displayEnvironmentInfo(sslExpireDate string) {
-	m.logger.PrintSeparator("-", 64)
+	m.printer.PrintSeparator("-", 64)
 	m.logger.Info("Debian Version: %s", m.getDebianVersion())
 	m.logger.Info("Kernel Version: %s", m.getKernelVersion())
-	m.logger.PrintSeparator("-", 64)
+	m.printer.PrintSeparator("-", 64)
 	m.logger.Info("SSL Certificate Expiration: %s", sslExpireDate)
 
 	// Display special feature status
@@ -518,7 +536,12 @@ func (m *Menu) handlePrintNodeInfo() error {
 	uuid := "12345678-1234-1234-1234-123456789abc"
 	path := "/ws"
 
-	m.logger.PrintNodeInfo(domain, port, uuid, path)
+	m.printer.PrintNodeInfo(ui.NodeInfo{
+		Domain: domain,
+		Port:   port,
+		UUID:   uuid,
+		Path:   path,
+	})
 
 	m.logger.Info("QR Code:")
 	m.logger.White("█████████████████████████████████")

@@ -13,20 +13,22 @@ import (
 
 func main() {
 	log := logger.NewLogger()
-	log.SetStandardLogger()
 
 	if os.Geteuid() != 0 {
-		log.Fatal("This program requires root privileges to run. Please run with sudo.")
+		log.Error("This program requires root privileges to run. Please run with sudo.")
+		os.Exit(1)
 	}
 
 	cfg, err := system.LoadSystemConfig()
 	if err != nil {
-		log.Fatal("System detection failed: %v", err)
+		log.Error("System detection failed: %v", err)
+		os.Exit(1)
 	}
 
 	application, err := app.NewServer(cfg, log)
 	if err != nil {
-		log.Fatal("Failed to initialise server: %v", err)
+		log.Error("Failed to initialise server: %v", err)
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -42,7 +44,8 @@ func main() {
 	}()
 
 	if err := application.Run(ctx); err != nil {
-		log.Fatal("Application failed to run: %v", err)
+		log.Error("Application failed to run: %v", err)
+		os.Exit(1)
 	}
 
 	log.Info("GWD deployment tool exited safely")
