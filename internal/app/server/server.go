@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	"GWD/internal/downloader"
+	serverdownloader "GWD/internal/downloader/server"
 	"GWD/internal/logger"
 	menu "GWD/internal/menu/server"
 	"GWD/internal/system"
@@ -17,7 +17,7 @@ type App struct {
 }
 
 func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) *App {
-	repo := downloader.NewRepository(cfg, log)
+	repo := serverdownloader.New(cfg, log)
 
 	menuManager := menu.NewMenu(cfg, log)
 
@@ -27,14 +27,14 @@ func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) *App {
 		menu:   menuManager,
 	}
 
-    app.installer = NewInstaller(cfg, log, repo)
+	app.installer = NewInstaller(cfg, log, repo)
 	app.menu.SetInstallHandler(app.InstallGWD)
 
 	return app
 }
 
 func (a *App) Run(ctx context.Context) error {
-    return a.menu.ShowMainMenu()
+	return a.menu.ShowMainMenu()
 }
 
 // InstallGWD executes the full GWD installation process.

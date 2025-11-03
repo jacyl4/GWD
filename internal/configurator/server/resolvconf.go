@@ -10,185 +10,104 @@ import (
 )
 
 const (
-	resolvconfConfigDir        = "/etc/resolvconf/resolv.conf.d"
-	resolvconfHeadFile         = "/etc/resolvconf/resolv.conf.d/head"
-	resolvconfOriginalFile     = "/etc/resolvconf/resolv.conf.d/original"
-	resolvconfBaseFile         = "/etc/resolvconf/resolv.conf.d/base"
-	resolvconfTailFile         = "/etc/resolvconf/resolv.conf.d/tail"
-	resolvconfRunResolvConf    = "/etc/resolvconf/run/resolv.conf"
-	runResolvconfResolvConf    = "/run/resolvconf/resolv.conf"
-	resolvconfInterfaceDir     = "/run/resolvconf/interface"
-	etcResolvConfPath          = "/etc/resolv.conf"
-	systemInterfacesConfigFile = "/etc/network/interfaces"
+	// resolvconf files
+	resolvconfHeadFile    = "/etc/resolvconf/resolv.conf.d/head"
+	resolvconfOriginal    = "/etc/resolvconf/resolv.conf.d/original"
+	resolvconfBase        = "/etc/resolvconf/resolv.conf.d/base"
+	resolvconfTail        = "/etc/resolvconf/resolv.conf.d/tail"
 
+	// resolv.conf targets
+	etcResolvConf        = "/etc/resolv.conf"
+	systemInterfacesFile = "/etc/network/interfaces"
+
+	// Force local resolver
 	resolvconfHeadContent = "nameserver 127.0.0.1\n"
 )
 
-// EnsureResolvconfConfig prepares the system resolvconf configuration to use the local resolver.
+// EnsureResolvconfConfig guarantees /etc/resolv.conf resolves via 127.0.0.1.
+// Steps: ensure base files -> write head -> strip dns-nameservers from interfaces
+// -> try "resolvconf -u" -> on failure, write /etc/resolv.conf directly.
 func EnsureResolvconfConfig() error {
-	if err := removeDirectoryContents(resolvconfConfigDir); err != nil {
-		return errors.Wrapf(err, "failed to clean %s", resolvconfConfigDir)
+	// 1) Ensure resolvconf base files exist (empty)
+	if err := ensureEmptyFile(resolvconfOriginal); err != nil {
+		return errors.Wrapf(err, "prepare %s", resolvconfOriginal)
+	}
+	if err := ensureEmptyFile(resolvconfBase); err != nil {
+		return errors.Wrapf(err, "prepare %s", resolvconfBase)
+	}
+	if err := ensureEmptyFile(resolvconfTail); err != nil {
+		return errors.Wrapf(err, "prepare %s", resolvconfTail)
 	}
 
-	filesToTouch := []string{
-		resolvconfOriginalFile,
-		resolvconfBaseFile,
-		resolvconfTailFile,
-	}
-
-	for _, file := range filesToTouch {
-		if err := ensureEmptyFile(file); err != nil {
-			return errors.Wrapf(err, "failed to prepare %s", file)
-		}
-	}
-
-	if err := os.RemoveAll(etcResolvConfPath); err != nil {
-		return errors.Wrapf(err, "failed to remove %s", etcResolvConfPath)
-	}
-
-	if err := os.RemoveAll(resolvconfInterfaceDir); err != nil {
-		return errors.Wrapf(err, "failed to remove %s", resolvconfInterfaceDir)
-	}
-
+	// 2) Write head with local nameserver
 	if err := os.WriteFile(resolvconfHeadFile, []byte(resolvconfHeadContent), 0644); err != nil {
-		return errors.Wrapf(err, "failed to write %s", resolvconfHeadFile)
+		return errors.Wrapf(err, "write %s", resolvconfHeadFile)
 	}
 
-	if err := ensureResolvConfSymlink(); err != nil {
-		return errors.Wrap(err, "failed to configure /etc/resolv.conf symlink")
+	// 3) Remove "dns-nameservers" lines from /etc/network/interfaces (avoid ifupdown injecting DNS)
+	if err := stripDnsNameservers(systemInterfacesFile); err != nil {
+		return errors.Wrapf(err, "update %s", systemInterfacesFile)
 	}
 
-	if err := removeDNSServerLines(systemInterfacesConfigFile); err != nil {
-		return errors.Wrapf(err, "failed to update %s", systemInterfacesConfigFile)
+	// 4) Try resolvconf update; if it fails, fallback to writing /etc/resolv.conf directly
+	if out, err := exec.Command("resolvconf", "-u").CombinedOutput(); err == nil {
+		return nil
+	} else {
+		// Fallback: make /etc/resolv.conf a plain file with local nameserver
+		_ = os.RemoveAll(etcResolvConf) // remove broken symlink if present
+		if writeErr := os.WriteFile(etcResolvConf, []byte(resolvconfHeadContent), 0644); writeErr != nil {
+			return errors.Wrapf(err, "resolvconf -u failed (%s) and fallback write %s failed", string(out), etcResolvConf)
+		}
+		return nil
 	}
-
-	if err := runResolvconfUpdate(); err != nil {
-		return errors.Wrap(err, "failed to apply resolvconf settings")
-	}
-
-	return nil
 }
 
-func removeDirectoryContents(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return errors.Wrapf(err, "failed to read directory %s", dir)
-	}
-
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
-		if err := os.RemoveAll(path); err != nil {
-			return errors.Wrapf(err, "failed to remove %s", path)
-		}
-	}
-
-	return nil
-}
+// ---- helpers ----
 
 func ensureEmptyFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return errors.Wrapf(err, "failed to create directory for %s", path)
+		return errors.Wrapf(err, "mkdir for %s", path)
 	}
-
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
-		return errors.Wrapf(err, "failed to truncate %s", path)
+		return errors.Wrapf(err, "truncate %s", path)
 	}
-
-	return file.Close()
+	return f.Close()
 }
 
-func ensureResolvConfSymlink() error {
-	if exists, err := fileExists(resolvconfRunResolvConf); err != nil {
-		return err
-	} else if exists {
-		return replaceSymlink(resolvconfRunResolvConf, etcResolvConfPath)
-	}
-
-	if exists, err := fileExists(runResolvconfResolvConf); err != nil {
-		return err
-	} else if exists {
-		return replaceSymlink(runResolvconfResolvConf, etcResolvConfPath)
-	}
-
-	return nil
-}
-
-func fileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, errors.Wrapf(err, "failed to stat %s", path)
-}
-
-func replaceSymlink(target, link string) error {
-	if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
-		return errors.Wrapf(err, "failed to remove existing %s", link)
-	}
-
-	if err := os.Symlink(target, link); err != nil {
-		return errors.Wrapf(err, "failed to create symlink %s -> %s", link, target)
-	}
-
-	return nil
-}
-
-func removeDNSServerLines(path string) error {
+// stripDnsNameservers removes lines containing "dns-nameservers " from /etc/network/interfaces,
+// preserving all other content and the original trailing newline behavior.
+func stripDnsNameservers(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return errors.Wrapf(err, "failed to read %s", path)
+		return errors.Wrapf(err, "read %s", path)
 	}
-
 	lines := bytes.Split(data, []byte{'\n'})
-	hasTrailingNewline := len(data) > 0 && data[len(data)-1] == '\n'
-	filtered := lines[:0]
-	removed := false
+	hasTrail := len(data) > 0 && data[len(data)-1] == '\n'
 
-	for i, line := range lines {
-		if hasTrailingNewline && i == len(lines)-1 && len(line) == 0 {
-			filtered = append(filtered, line)
+	out := lines[:0]
+	changed := false
+	for i, ln := range lines {
+		// Preserve the original trailing empty line if present
+		if hasTrail && i == len(lines)-1 && len(ln) == 0 {
+			out = append(out, ln)
 			continue
 		}
-
-		if bytes.Contains(line, []byte("dns-nameservers ")) {
-			removed = true
+		if bytes.Contains(ln, []byte("dns-nameservers ")) {
+			changed = true
 			continue
 		}
-
-		filtered = append(filtered, line)
+		out = append(out, ln)
 	}
-
-	if !removed {
+	if !changed {
 		return nil
 	}
-
-	output := bytes.Join(filtered, []byte{'\n'})
-	// Ensure trailing newline is preserved when original file had one
-	if hasTrailingNewline && (len(output) == 0 || output[len(output)-1] != '\n') {
-		output = append(output, '\n')
+	dst := bytes.Join(out, []byte{'\n'})
+	if hasTrail && (len(dst) == 0 || dst[len(dst)-1] != '\n') {
+		dst = append(dst, '\n')
 	}
-
-	if err := os.WriteFile(path, output, 0644); err != nil {
-		return errors.Wrapf(err, "failed to write %s", path)
-	}
-
-	return nil
-}
-
-func runResolvconfUpdate() error {
-	cmd := exec.Command("resolvconf", "-u")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return errors.Wrapf(err, "resolvconf -u failed: %s", string(output))
-	}
-	return nil
+	return os.WriteFile(path, dst, 0644)
 }

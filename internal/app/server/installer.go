@@ -9,7 +9,7 @@ import (
 
 	configserver "GWD/internal/configurator/server"
 	"GWD/internal/deployer"
-	"GWD/internal/downloader"
+	serverdownloader "GWD/internal/downloader/server"
 	"GWD/internal/logger"
 	menu "GWD/internal/menu/server"
 	"GWD/internal/system"
@@ -21,8 +21,7 @@ type Installer struct {
 	config     *system.SystemConfig
 	logger     *logger.ColoredLogger
 	pkgManager *system.DpkgManager
-	repository *downloader.Repository
-	smartdns   *deployer.SmartDNS
+	repository *serverdownloader.Downloader
 	doh        *deployer.DoH
 	nginx      *deployer.Nginx
 	vtrui      *deployer.Vtrui
@@ -31,13 +30,12 @@ type Installer struct {
 
 // NewInstaller creates a new Installer instance. Package manager is constructed here
 // to keep server wiring minimal.
-func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *downloader.Repository) *Installer {
+func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *serverdownloader.Downloader) *Installer {
 	return &Installer{
 		config:     cfg,
 		logger:     log,
 		pkgManager: system.NewDpkgManager(),
 		repository: repo,
-		smartdns:   deployer.NewSmartDNS(cfg.GetRepoDir(), log),
 		doh:        deployer.NewDoH(cfg.GetRepoDir(), log),
 		nginx:      deployer.NewNginx(cfg.GetRepoDir(), log),
 		vtrui:      deployer.NewVtrui(cfg.GetRepoDir(), log),
@@ -48,8 +46,6 @@ func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *dow
 // InstallGWD executes the full GWD installation process
 // This is the core installation function, coordinating all modules to complete system deployment
 func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
-	i.logger.Info("Starting GWD installation...")
-
 	allInstallSetupSteps := []struct {
 		name string
 		fn   func() error
@@ -242,10 +238,6 @@ func (i *Installer) validateDiskSpace() error {
 // installDOHServer installs the DoH (DNS-over-HTTPS) server
 func (i *Installer) installDOHServer() error {
 	i.logger.Info("Configuring DoH server...")
-	if err := i.smartdns.Install(); err != nil {
-		return errors.Wrap(err, "SmartDNS deployment failed")
-	}
-
 	if err := i.doh.Install(); err != nil {
 		return errors.Wrap(err, "DoH deployment failed")
 	}

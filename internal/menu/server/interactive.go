@@ -408,7 +408,7 @@ func (m *Menu) displayEnvironmentInfo(sslExpireDate string) {
 
 // handleInstallGWD handles the Install GWD option
 func (m *Menu) handleInstallGWD() error {
-	m.logger.Info("Starting GWD installation...")
+	m.logger.Info("Starting GWD server installation...")
 
 	// Get domain input from user
 	domain, err := m.promptDomain()
