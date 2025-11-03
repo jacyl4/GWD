@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"GWD/internal/system"
@@ -44,6 +45,111 @@ type Target struct {
 	TempPath     string
 	MinSize      int64
 	Executable   bool
+}
+
+// ProgressReader wraps an io.Reader to track download progress.
+type ProgressReader struct {
+	reader     io.Reader
+	total      int64
+	current    int64
+	logger     Logger
+	fileName   string
+	startTime  time.Time
+	lastUpdate time.Time
+}
+
+// NewProgressReader creates a new progress tracking reader.
+func NewProgressReader(reader io.Reader, total int64, logger Logger, fileName string) *ProgressReader {
+	now := time.Now()
+	return &ProgressReader{
+		reader:     reader,
+		total:      total,
+		current:    0,
+		logger:     logger,
+		fileName:   fileName,
+		startTime:  now,
+		lastUpdate: now,
+	}
+}
+
+// Finish displays the final 100% progress bar.
+func (pr *ProgressReader) Finish() {
+	if pr.total <= 0 {
+		fmt.Println()
+		return
+	}
+	
+	current := atomic.LoadInt64(&pr.current)
+	elapsed := time.Since(pr.startTime).Seconds()
+	if elapsed < 0.001 {
+		elapsed = 0.001
+	}
+	speed := float64(current) / elapsed / 1024 / 1024
+	
+	// Create full progress bar
+	barWidth := 30
+	bar := strings.Repeat("=", barWidth)
+	
+	fmt.Printf("\r  %s: [%s] 100.0%% (%.2f/%.2f MB) %.2f MB/s\n",
+		pr.fileName,
+		bar,
+		float64(current)/1024/1024,
+		float64(pr.total)/1024/1024,
+		speed,
+	)
+}
+
+// Read implements io.Reader and updates progress.
+func (pr *ProgressReader) Read(p []byte) (int, error) {
+	n, err := pr.reader.Read(p)
+	if n > 0 {
+		atomic.AddInt64(&pr.current, int64(n))
+		pr.updateProgress()
+	}
+	return n, err
+}
+
+// updateProgress prints the download progress bar.
+func (pr *ProgressReader) updateProgress() {
+	now := time.Now()
+	// Update progress every 200ms to make it smoother
+	if now.Sub(pr.lastUpdate) < 200*time.Millisecond {
+		return
+	}
+	pr.lastUpdate = now
+
+	current := atomic.LoadInt64(&pr.current)
+	
+	if pr.total > 0 {
+		percentage := float64(current) / float64(pr.total) * 100
+		elapsed := now.Sub(pr.startTime).Seconds()
+		speed := float64(current) / elapsed / 1024 / 1024 // MB/s
+		
+		// Create visual progress bar
+		barWidth := 30
+		filledWidth := int(float64(barWidth) * percentage / 100)
+		bar := strings.Repeat("=", filledWidth)
+		if filledWidth < barWidth {
+			bar += ">"
+			bar += strings.Repeat(" ", barWidth-filledWidth-1)
+		}
+		
+		// Use \r to overwrite the same line
+		fmt.Printf("\r  %s: [%s] %.1f%% (%.2f/%.2f MB) %.2f MB/s",
+			pr.fileName,
+			bar,
+			percentage,
+			float64(current)/1024/1024,
+			float64(pr.total)/1024/1024,
+			speed,
+		)
+	} else {
+		// Unknown size, just show downloaded amount
+		fmt.Printf("\r  %s: %.2f MB downloaded",
+			pr.fileName,
+			float64(current)/1024/1024,
+		)
+	}
 }
 
 // NewRepository constructs a Repository with sensible HTTP defaults.
@@ -111,8 +217,6 @@ func (r *Repository) downloadIfNeeded(target Target) error {
 		r.logger.Debug("%s is already the latest version, skipping download", target.Name)
 		return nil
 	}
-
-	r.logger.Info("Downloading %s...", target.Name)
 
 	tempPath := target.TempPath
 	if tempPath == "" {
@@ -197,9 +301,21 @@ func (r *Repository) doDownload(url, localPath string) error {
 	}
 	defer file.Close()
 
-	if _, err = io.Copy(file, resp.Body); err != nil {
+	// Get file size from Content-Length header
+	totalSize := resp.ContentLength
+	
+	// Extract filename from path
+	fileName := filepath.Base(localPath)
+	
+	// Wrap response body with progress reader
+	progressReader := NewProgressReader(resp.Body, totalSize, r.logger, fileName)
+	
+	if _, err = io.Copy(file, progressReader); err != nil {
 		return errors.Wrap(err, "Failed to write file")
 	}
+	
+	// Display final 100% progress bar
+	progressReader.Finish()
 
 	return nil
 }

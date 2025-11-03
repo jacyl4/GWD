@@ -323,17 +323,17 @@ func (m *Menu) promptUserSelection(options []MenuOption) (int, error) {
 
 	// Create selection prompt
 	prompt := promptui.Select{
-		Label:    "Please select an operation",
-		Items:    items,
-		Size:     10, // Display 10 options, supports scrolling
-		HideHelp: false,
+		Label:             "Please select an operation",
+		Items:             items,
+		Size:              10, // Display 10 options, supports scrolling
+		HideHelp:          false,
+		StartInSearchMode: false,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}:",
 			Active:   "▶ {{ . | cyan }}",
 			Inactive: "  {{ . }}",
 			Selected: "✅ {{ . | green }}",
-			Help: `Use the arrow keys to navigate: {{ .NextKey }} {{ .PrevKey }} {{ .PageDownKey }} {{ .PageUpKey }}{{ if .Search }} and {{ .SearchKey }} toggles search{{ end }}
-Exit program: Ctrl + C`,
+			Help:     "{{ \"Navigate:\" | faint }} {{ .NextKey }} {{ .PrevKey }} {{ .PageDownKey }} {{ .PageUpKey }} {{ \"|\" | faint }} {{ \"Exit:\" | faint }} Ctrl + C",
 		},
 	}
 
