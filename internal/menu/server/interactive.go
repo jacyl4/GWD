@@ -342,7 +342,6 @@ func (m *Menu) handleInstallGWD() error {
 	return nil
 }
 
-
 // Utility functions - Helper functions
 
 // clearScreen clears the screen

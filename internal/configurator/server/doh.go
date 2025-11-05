@@ -3,18 +3,22 @@ package server
 import (
 	"os"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 const dohConfigDir = "/opt/GWD/doh"
 
 func EnsureDoHConfig() error {
 	if err := os.MkdirAll(dohConfigDir, 0755); err != nil {
-		return errors.Wrapf(err, "failed to create DoH configuration directory %s", dohConfigDir)
+		return newConfiguratorError("configurator.EnsureDoHConfig", "failed to create DoH configuration directory", err, apperrors.Metadata{
+			"path": dohConfigDir,
+		})
 	}
 
 	if err := os.WriteFile("/opt/GWD/doh/doh-server.conf", []byte(dohConfigContent), 0644); err != nil {
-		return errors.Wrapf(err, "failed to write DoH configuration file /opt/GWD/doh/doh-server.conf")
+		return newConfiguratorError("configurator.EnsureDoHConfig", "failed to write DoH configuration file", err, apperrors.Metadata{
+			"path": "/opt/GWD/doh/doh-server.conf",
+		})
 	}
 
 	return nil

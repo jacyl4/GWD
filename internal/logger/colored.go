@@ -12,13 +12,15 @@ import (
 	"golang.org/x/term"
 )
 
+var _ ProgressLogger = (*ColoredLogger)(nil)
+
 // ColoredLogger renders log messages using colours when supported by the output writer.
 type ColoredLogger struct {
 	*StandardLogger
 	colors   map[Level]*color.Color
 	progress struct {
 		sync.Mutex
-		active  *ProgressLogger
+		active  *ProgressSpinner
 		message string
 	}
 }
@@ -73,7 +75,7 @@ func (l *ColoredLogger) Progress(operation string) {
 		writer = os.Stdout
 	}
 
-	progress := NewProgressLogger(writer)
+	progress := NewProgressSpinner(writer)
 	progress.Start(operation)
 	l.progress.active = progress
 	l.progress.message = operation

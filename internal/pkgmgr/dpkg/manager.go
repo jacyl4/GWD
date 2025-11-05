@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 // Manager orchestrates package installation and cleanup via dpkg/apt.
@@ -71,12 +71,12 @@ var ConditionalPackages = map[string]func() bool{
 // InstallDependencies installs required and conditional packages after removing conflicts.
 func (m *Manager) InstallDependencies() error {
 	if err := m.removeConflictingPackages(); err != nil {
-		return errors.Wrap(err, "failed to uninstall conflicting packages")
+		return wrapDPKGError(err, "dpkg.removeConflicts", "failed to uninstall conflicting packages", nil)
 	}
 
 	packagesToInstall, err := m.getMissingPackages()
 	if err != nil {
-		return errors.Wrap(err, "failed to determine missing packages")
+		return wrapDPKGError(err, "dpkg.getMissingPackages", "failed to determine missing packages", nil)
 	}
 
 	if len(packagesToInstall) == 0 {
@@ -84,7 +84,9 @@ func (m *Manager) InstallDependencies() error {
 	}
 
 	if err := m.installPackages(packagesToInstall); err != nil {
-		return errors.Wrap(err, "failed to install packages")
+		return wrapDPKGError(err, "dpkg.installPackages", "failed to install packages", apperrors.Metadata{
+			"packages": strings.Join(packagesToInstall, ","),
+		})
 	}
 
 	return nil
@@ -98,7 +100,10 @@ func (m *Manager) UpgradeSystem() error {
 	}
 	for _, step := range steps {
 		if err := m.exec.Run(step[0], step[1:]...); err != nil {
-			return errors.Wrapf(err, "command %s %s failed", step[0], strings.Join(step[1:], " "))
+			cmd := strings.Join(append([]string{step[0]}, step[1:]...), " ")
+			return wrapDPKGError(err, "dpkg.upgradeSystem", "package upgrade command failed", apperrors.Metadata{
+				"command": cmd,
+			})
 		}
 	}
 	return nil
@@ -107,7 +112,7 @@ func (m *Manager) UpgradeSystem() error {
 func (m *Manager) getMissingPackages() ([]string, error) {
 	installed, err := m.installedPackageSet()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to list installed packages")
+		return nil, wrapDPKGError(err, "dpkg.installedPackageSet", "failed to list installed packages", nil)
 	}
 
 	var missing []string
@@ -132,7 +137,9 @@ func (m *Manager) getMissingPackages() ([]string, error) {
 func (m *Manager) installedPackageSet() (map[string]struct{}, error) {
 	output, err := m.exec.Output("dpkg-query", "-W", "-f=${binary:Package}\n")
 	if err != nil {
-		return nil, errors.Wrap(err, "dpkg-query failed")
+		return nil, wrapDPKGError(err, "dpkg.installedPackageSet", "dpkg-query failed", apperrors.Metadata{
+			"command": "dpkg-query -W",
+		})
 	}
 
 	result := make(map[string]struct{})
@@ -156,30 +163,37 @@ func (m *Manager) installPackages(packages []string) error {
 	}
 
 	if err := m.updatePackageIndex(); err != nil {
-		return errors.Wrap(err, "failed to update package index")
+		return wrapDPKGError(err, "dpkg.updatePackageIndex", "failed to update package index", nil)
 	}
 
 	args := append([]string{"install", "-y"}, packages...)
 	if err := m.exec.Run("apt", args...); err != nil {
-		return errors.Wrapf(err, "failed to install packages: %v", packages)
+		return wrapDPKGError(err, "dpkg.installPackages", "failed to install packages via apt", apperrors.Metadata{
+			"packages": strings.Join(packages, ","),
+		})
 	}
 	return nil
 }
 
 func (m *Manager) updatePackageIndex() error {
-	return m.exec.Run("apt", "update")
+	if err := m.exec.Run("apt", "update"); err != nil {
+		return wrapDPKGError(err, "dpkg.updatePackageIndex", "apt update failed", nil)
+	}
+	return nil
 }
 
 func (m *Manager) removeConflictingPackages() error {
 	installed, err := m.installedPackageSet()
 	if err != nil {
-		return errors.Wrap(err, "failed to list installed packages")
+		return wrapDPKGError(err, "dpkg.installedPackageSet", "failed to list installed packages", nil)
 	}
 
 	for _, pkg := range PackagesToRemove {
 		if _, exists := installed[pkg]; exists {
 			if err := m.removePackage(pkg); err != nil {
-				return errors.Wrapf(err, "failed to uninstall package %s", pkg)
+				return wrapDPKGError(err, "dpkg.removePackage", "failed to uninstall package", apperrors.Metadata{
+					"package": pkg,
+				})
 			}
 		}
 	}
@@ -187,7 +201,46 @@ func (m *Manager) removeConflictingPackages() error {
 }
 
 func (m *Manager) removePackage(name string) error {
-	return m.exec.Run("apt", "remove", "--purge", "-y", name)
+	if err := m.exec.Run("apt", "remove", "--purge", "-y", name); err != nil {
+		return wrapDPKGError(err, "dpkg.removePackage", "apt remove failed", apperrors.Metadata{
+			"package": name,
+		})
+	}
+	return nil
+}
+
+func wrapDPKGError(err error, operation, message string, metadata apperrors.Metadata) *apperrors.AppError {
+	if err == nil {
+		return newDPKGError(operation, message, nil, metadata)
+	}
+
+	if appErr, ok := apperrors.As(err); ok {
+		if appErr.Module == "" {
+			appErr.WithModule("pkgmgr.dpkg")
+		}
+		if appErr.Operation == "" {
+			appErr.WithOperation(operation)
+		}
+		if metadata != nil {
+			appErr.WithFields(metadata)
+		}
+		if appErr.Message == "" {
+			appErr.Message = message
+		}
+		return appErr
+	}
+
+	return newDPKGError(operation, message, err, metadata)
+}
+
+func newDPKGError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
+	appErr := apperrors.DependencyError(apperrors.CodeDependencyGeneric, message, err).
+		WithModule("pkgmgr.dpkg").
+		WithOperation(operation)
+	if metadata != nil {
+		appErr.WithFields(metadata)
+	}
+	return appErr
 }
 
 func getNumCPUs() int {

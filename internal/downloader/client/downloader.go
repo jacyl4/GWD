@@ -8,9 +8,9 @@ import (
 	_ "embed"
 
 	"GWD/internal/downloader/core"
+	apperrors "GWD/internal/errors"
+	"GWD/internal/logger"
 	"GWD/internal/system"
-
-	"github.com/pkg/errors"
 )
 
 //go:embed client-extra.yaml
@@ -20,24 +20,30 @@ var clientExtraConfig []byte
 type Downloader struct {
 	repo *core.Repository
 	cfg  *system.SystemConfig
-	log  core.Logger
+	log  logger.ProgressLogger
 }
 
 // New constructs a client downloader configured with base and client-specific components.
-func New(cfg *system.SystemConfig, log core.Logger) (*Downloader, error) {
+func New(cfg *system.SystemConfig, log logger.ProgressLogger) (*Downloader, error) {
 	baseCfg, err := core.BaseConfig()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to load base download configuration")
+		return nil, apperrors.DependencyError(apperrors.CodeDependencyGeneric, "failed to load base download configuration", err).
+			WithModule("downloader.client").
+			WithOperation("New")
 	}
 
 	extraCfg, err := core.ParseConfig(clientExtraConfig)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to parse client download configuration")
+		return nil, apperrors.ConfigError(apperrors.CodeConfigGeneric, "failed to parse client download configuration", err).
+			WithModule("downloader.client").
+			WithOperation("New")
 	}
 
 	mergedCfg, err := core.MergeConfigs(baseCfg, extraCfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to merge download configurations")
+		return nil, apperrors.ConfigError(apperrors.CodeConfigGeneric, "failed to merge download configurations", err).
+			WithModule("downloader.client").
+			WithOperation("New")
 	}
 
 	if branch := strings.TrimSpace(cfg.Branch); branch != "" {
@@ -62,12 +68,17 @@ func (d *Downloader) DownloadAll() error {
 
 	repoDir := d.cfg.GetRepoDir()
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
-		return errors.Wrapf(err, "failed to create repository directory: %s", repoDir)
+		return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to create repository directory", err).
+			WithModule("downloader.client").
+			WithOperation("DownloadAll").
+			WithField("repo_dir", repoDir)
 	}
 
 	targets, err := d.repo.BuildTargets(repoDir, d.cfg.Architecture)
 	if err != nil {
-		return errors.Wrap(err, "failed to prepare download targets")
+		return apperrors.DependencyError(apperrors.CodeDependencyGeneric, "failed to prepare download targets", err).
+			WithModule("downloader.client").
+			WithOperation("DownloadAll")
 	}
 
 	if err := d.repo.DownloadWithContext(context.Background(), targets); err != nil {

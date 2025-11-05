@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 // Config captures runtime characteristics and directories used by GWD.
@@ -27,13 +27,13 @@ func LoadConfig() (*Config, error) {
 
 	arch, err := detectArchitecture()
 	if err != nil {
-		return nil, errors.Wrap(err, "architecture detection failed")
+		return nil, newSystemError("system.LoadConfig.detectArchitecture", "architecture detection failed", err, nil)
 	}
 	cfg.Architecture = arch
 
 	virtType, err := detectVirtualization()
 	if err != nil {
-		return nil, errors.Wrap(err, "virtualization detection failed")
+		return nil, newSystemError("system.LoadConfig.detectVirtualization", "virtualization detection failed", err, nil)
 	}
 	cfg.VirtType = virtType
 
@@ -43,17 +43,23 @@ func LoadConfig() (*Config, error) {
 // Validate ensures working directories exist and required commands are present.
 func (c *Config) Validate() error {
 	if err := os.MkdirAll(c.WorkingDir, 0o755); err != nil {
-		return errors.Wrapf(err, "failed to create working directory %s", c.WorkingDir)
+		return newSystemError("system.Config.Validate", "failed to create working directory", err, apperrors.Metadata{
+			"path": c.WorkingDir,
+		})
 	}
 
 	if err := os.MkdirAll(c.TmpDir, 0o755); err != nil {
-		return errors.Wrapf(err, "failed to create temporary directory %s", c.TmpDir)
+		return newSystemError("system.Config.Validate", "failed to create temporary directory", err, apperrors.Metadata{
+			"path": c.TmpDir,
+		})
 	}
 
 	requiredCommands := []string{"apt", "wget", "curl", "systemctl"}
 	for _, cmd := range requiredCommands {
 		if _, err := exec.LookPath(cmd); err != nil {
-			return errors.Errorf("missing required system command: %s", cmd)
+			return newSystemError("system.Config.Validate", "missing required system command", err, apperrors.Metadata{
+				"command": cmd,
+			})
 		}
 	}
 
@@ -96,4 +102,14 @@ type SystemConfig = Config
 // LoadSystemConfig preserves the previous constructor name.
 func LoadSystemConfig() (*SystemConfig, error) {
 	return LoadConfig()
+}
+
+func newSystemError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
+	appErr := apperrors.SystemError(apperrors.CodeSystemGeneric, message, err).
+		WithModule("system").
+		WithOperation(operation)
+	if metadata != nil {
+		appErr.WithFields(metadata)
+	}
+	return appErr
 }

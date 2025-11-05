@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 // Component represents a deployable system component.
@@ -62,37 +62,52 @@ func (g *GenericDeployer) Name() string {
 func (g *GenericDeployer) Install() error {
 	for _, dir := range g.config.ConfigDirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return errors.Wrapf(err, "creating config directory %s", dir)
+			return newDeployerError("deployer.GenericDeployer.Install", "failed to create config directory", err, apperrors.Metadata{
+				"directory": dir,
+			})
 		}
 	}
 
 	if err := deployBinary(g.repoDir, g.config.BinaryName, g.config.BinaryPath); err != nil {
-		return errors.Wrapf(err, "deploying binary %s", g.config.BinaryName)
+		return newDeployerError("deployer.GenericDeployer.Install", "failed to deploy binary", err, apperrors.Metadata{
+			"binary": g.config.BinaryName,
+			"target": g.config.BinaryPath,
+		})
 	}
 
 	serviceContent, err := renderTemplate(g.config.Service.Source, g.config.Service.Data)
 	if err != nil {
-		return errors.Wrap(err, "rendering systemd service template")
+		return newDeployerError("deployer.GenericDeployer.Install", "failed to render systemd service template", err, apperrors.Metadata{
+			"template": g.config.Service.Source,
+		})
 	}
 
 	if err := writeSystemdUnit(g.config.ServiceUnit, serviceContent); err != nil {
-		return errors.Wrapf(err, "writing systemd unit %s", g.config.ServiceUnit)
+		return newDeployerError("deployer.GenericDeployer.Install", "failed to write systemd unit", err, apperrors.Metadata{
+			"unit": g.config.ServiceUnit,
+		})
 	}
 
 	for dropInName, dropInTemplate := range g.config.DropIns {
 		content, err := renderTemplate(dropInTemplate.Source, dropInTemplate.Data)
 		if err != nil {
-			return errors.Wrapf(err, "rendering drop-in %s", dropInName)
+			return newDeployerError("deployer.GenericDeployer.Install", "failed to render systemd drop-in", err, apperrors.Metadata{
+				"drop_in":  dropInName,
+				"template": dropInTemplate.Source,
+			})
 		}
 
 		if err := writeSystemdDropIn(g.config.ServiceUnit, dropInName, content); err != nil {
-			return errors.Wrapf(err, "writing drop-in %s for %s", dropInName, g.config.ServiceUnit)
+			return newDeployerError("deployer.GenericDeployer.Install", "failed to write systemd drop-in", err, apperrors.Metadata{
+				"drop_in": dropInName,
+				"unit":    g.config.ServiceUnit,
+			})
 		}
 	}
 
 	if g.config.PostInstall != nil {
 		if err := g.config.PostInstall(); err != nil {
-			return errors.Wrap(err, "executing post-install hook")
+			return newDeployerError("deployer.GenericDeployer.Install", "post-install hook failed", err, nil)
 		}
 	}
 
@@ -102,19 +117,35 @@ func (g *GenericDeployer) Install() error {
 // Validate verifies that the deployed resources exist on disk.
 func (g *GenericDeployer) Validate() error {
 	if _, err := os.Stat(g.config.BinaryPath); err != nil {
-		return errors.Wrapf(err, "binary not found: %s", g.config.BinaryPath)
+		return newDeployerError("deployer.GenericDeployer.Validate", "binary not found", err, apperrors.Metadata{
+			"path": g.config.BinaryPath,
+		})
 	}
 
 	unitPath := filepath.Join(systemdDir, g.config.ServiceUnit)
 	if _, err := os.Stat(unitPath); err != nil {
-		return errors.Wrapf(err, "systemd unit not found: %s", unitPath)
+		return newDeployerError("deployer.GenericDeployer.Validate", "systemd unit not found", err, apperrors.Metadata{
+			"path": unitPath,
+		})
 	}
 
 	for _, dir := range g.config.ConfigDirs {
 		if _, err := os.Stat(dir); err != nil {
-			return errors.Wrapf(err, "config directory not found: %s", dir)
+			return newDeployerError("deployer.GenericDeployer.Validate", "config directory not found", err, apperrors.Metadata{
+				"directory": dir,
+			})
 		}
 	}
 
 	return nil
+}
+
+func newDeployerError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
+	appErr := apperrors.DeploymentError(apperrors.CodeDeploymentGeneric, message, err).
+		WithModule("deployer").
+		WithOperation(operation)
+	if metadata != nil {
+		appErr.WithFields(metadata)
+	}
+	return appErr
 }

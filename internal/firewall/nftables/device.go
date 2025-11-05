@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 func selectFlowtableDevices(cfg *Config, auto []string) []string {
@@ -33,7 +33,9 @@ func selectFlowtableDevices(cfg *Config, auto []string) []string {
 func detectFlowtableDevices(cfg *Config) ([]string, []string, error) {
 	entries, err := os.ReadDir("/sys/class/net")
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to read /sys/class/net")
+		return nil, nil, wrapFirewallError(err, "nftables.detectFlowtableDevices", "failed to read network devices", apperrors.Metadata{
+			"path": "/sys/class/net",
+		})
 	}
 
 	include := make(map[string]struct{}, len(cfg.FlowtableDeviceInclude)+len(cfg.FlowtableDeviceExplicit))
@@ -115,7 +117,7 @@ func detectDefaultLanCIDRs(cfg *Config) ([]string, error) {
 
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to enumerate interfaces")
+		return nil, wrapFirewallError(err, "nftables.detectDefaultLanCIDRs", "failed to enumerate interfaces", nil)
 	}
 
 	explicit := stringSet(cfg.FlowtableDeviceExplicit)

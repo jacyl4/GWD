@@ -2,7 +2,8 @@ package nftables
 
 import (
 	nf "github.com/google/nftables"
-	"github.com/pkg/errors"
+
+	apperrors "GWD/internal/errors"
 )
 
 func ensureTableExists(table *nf.Table) error {
@@ -20,7 +21,9 @@ func ensureTableExists(table *nf.Table) error {
 		Family: table.Family,
 	})
 	if err := conn.Flush(); err != nil {
-		return errors.Wrapf(err, "failed to create table %s", table.Name)
+		return wrapFirewallError(err, "nftables.ensureTableExists.flush", "failed to create table", apperrors.Metadata{
+			"table": table.Name,
+		})
 	}
 	return nil
 }
@@ -28,7 +31,9 @@ func ensureTableExists(table *nf.Table) error {
 func tableExists(conn *nf.Conn, name string, family nf.TableFamily) (bool, error) {
 	tables, err := conn.ListTablesOfFamily(family)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to list tables")
+		return false, wrapFirewallError(err, "nftables.tableExists", "failed to list tables", apperrors.Metadata{
+			"family": family,
+		})
 	}
 	for _, t := range tables {
 		if t.Name == name {

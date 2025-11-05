@@ -8,14 +8,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 // CalculateSHA256 returns the SHA256 checksum for the provided reader.
 func CalculateSHA256(r io.Reader) (string, error) {
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, r); err != nil {
-		return "", errors.Wrap(err, "failed to read data for checksum")
+		return "", newChecksumError("checksum.CalculateSHA256", "failed to read data for checksum", err, nil)
 	}
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
@@ -24,7 +24,9 @@ func CalculateSHA256(r io.Reader) (string, error) {
 func CalculateFileChecksum(fs FileSystem, filePath string) (string, error) {
 	file, err := fs.Open(filePath)
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to open file: %s", filePath)
+		return "", newChecksumError("checksum.CalculateFileChecksum", "failed to open file", err, apperrors.Metadata{
+			"path": filePath,
+		})
 	}
 	defer file.Close()
 
@@ -35,7 +37,7 @@ func CalculateFileChecksum(fs FileSystem, filePath string) (string, error) {
 func ValidateChecksum(fs FileSystem, filePath, expectedHash string) error {
 	expected := strings.ToLower(strings.TrimSpace(expectedHash))
 	if expected == "" {
-		return errors.New("expected checksum is empty")
+		return newChecksumError("checksum.ValidateChecksum", "expected checksum is empty", nil, apperrors.Metadata{"path": filePath})
 	}
 
 	actual, err := CalculateFileChecksum(fs, filePath)
@@ -44,7 +46,11 @@ func ValidateChecksum(fs FileSystem, filePath, expectedHash string) error {
 	}
 
 	if actual != expected {
-		return errors.Errorf("checksum mismatch for %s: expected %s, got %s", filePath, expected, actual)
+		return newChecksumError("checksum.ValidateChecksum", "checksum mismatch", nil, apperrors.Metadata{
+			"path":          filePath,
+			"expected_hash": expected,
+			"actual_hash":   actual,
+		})
 	}
 
 	return nil
@@ -59,15 +65,29 @@ func ValidateFileSize(fs FileSystem, filePath string, minSize int64) error {
 	info, err := fs.Stat(filePath)
 	if err != nil {
 		if stdErrors.Is(err, os.ErrNotExist) {
-			return errors.Errorf("file does not exist: %s", filePath)
+			return newChecksumError("checksum.ValidateFileSize", "file does not exist", nil, apperrors.Metadata{"path": filePath})
 		}
-		return errors.Wrapf(err, "failed to stat file: %s", filePath)
+		return newChecksumError("checksum.ValidateFileSize", "failed to stat file", err, apperrors.Metadata{"path": filePath})
 	}
 
 	size := info.Size()
 	if size < minSize {
-		return errors.Errorf("file size %d bytes is less than minimum %d bytes (%s)", size, minSize, filePath)
+		return newChecksumError("checksum.ValidateFileSize", "file size below required minimum", nil, apperrors.Metadata{
+			"path":    filePath,
+			"actual":  size,
+			"minimum": minSize,
+		})
 	}
 
 	return nil
+}
+
+func newChecksumError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
+	appErr := apperrors.DependencyError(apperrors.CodeDependencyGeneric, message, err).
+		WithModule("downloader.checksum").
+		WithOperation(operation)
+	if metadata != nil {
+		appErr.WithFields(metadata)
+	}
+	return appErr
 }

@@ -106,5 +106,3 @@ func EnsureTimezoneShanghai() error {
 	}
 	return nil
 }
-
-

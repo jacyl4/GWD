@@ -1,6 +1,10 @@
 package logger
 
-import "context"
+import (
+	"context"
+
+	apperrors "GWD/internal/errors"
+)
 
 // Logger describes the core behaviour required by logging implementations.
 type Logger interface {
@@ -19,9 +23,15 @@ type Logger interface {
 	// With returns a derived logger enriched with constant fields.
 	With(fields ...Field) Logger
 
+	// WithTrace enriches the logger with trace context extracted from ctx.
+	WithTrace(ctx context.Context) Logger
+
 	// Level control.
 	SetLevel(level Level)
 	GetLevel() Level
+
+	// ErrorWithAppError logs a structured error using AppError metadata.
+	ErrorWithAppError(ctx context.Context, msg string, err *apperrors.AppError)
 }
 
 // Level represents the severity of a log entry.
@@ -77,4 +87,12 @@ func Error(err error) Field {
 // Any records an arbitrary value.
 func Any(key string, value interface{}) Field {
 	return Field{Key: key, Value: value}
+}
+
+// ProgressLogger exposes progress-aware helpers in addition to the core logger behaviour.
+type ProgressLogger interface {
+	Logger
+	Success(format string, args ...interface{})
+	Progress(operation string)
+	ProgressDone(operation string)
 }

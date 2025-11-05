@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 const (
@@ -22,11 +22,16 @@ func deployBinary(repoDir, binaryName, targetPath string) error {
 	target := targetPath
 
 	if err := copyFile(source, target); err != nil {
-		return errors.Wrapf(err, "copying binary %s to %s", source, target)
+		return newDeployerError("deployer.deployBinary", "failed to copy binary", err, apperrors.Metadata{
+			"source": source,
+			"target": target,
+		})
 	}
 
 	if err := os.Chmod(target, binaryMode); err != nil {
-		return errors.Wrapf(err, "setting permissions on %s", target)
+		return newDeployerError("deployer.deployBinary", "failed to set permissions", err, apperrors.Metadata{
+			"path": target,
+		})
 	}
 
 	return nil
@@ -36,7 +41,9 @@ func deployBinary(repoDir, binaryName, targetPath string) error {
 func writeSystemdUnit(unitName, content string) error {
 	path := filepath.Join(systemdDir, unitName)
 	if err := writeSystemdFile(path, content); err != nil {
-		return errors.Wrapf(err, "writing systemd unit %s", unitName)
+		return newDeployerError("deployer.writeSystemdUnit", "failed to write systemd unit", err, apperrors.Metadata{
+			"unit": unitName,
+		})
 	}
 	return nil
 }
@@ -47,7 +54,10 @@ func writeSystemdDropIn(unitName, dropInName, content string) error {
 	path := filepath.Join(dir, dropInName)
 
 	if err := writeSystemdFile(path, content); err != nil {
-		return errors.Wrapf(err, "writing systemd drop-in %s for %s", dropInName, unitName)
+		return newDeployerError("deployer.writeSystemdDropIn", "failed to write systemd drop-in", err, apperrors.Metadata{
+			"drop_in": dropInName,
+			"unit":    unitName,
+		})
 	}
 
 	return nil
@@ -57,26 +67,37 @@ func writeSystemdDropIn(unitName, dropInName, content string) error {
 func copyFile(source, target string) error {
 	in, err := os.Open(source)
 	if err != nil {
-		return errors.Wrapf(err, "opening source file %s", source)
+		return newDeployerError("deployer.copyFile", "failed to open source file", err, apperrors.Metadata{
+			"source": source,
+		})
 	}
 	defer in.Close()
 
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return errors.Wrapf(err, "ensuring directory for %s", target)
+		return newDeployerError("deployer.copyFile", "failed to ensure directory", err, apperrors.Metadata{
+			"target": target,
+		})
 	}
 
 	out, err := os.Create(target)
 	if err != nil {
-		return errors.Wrapf(err, "creating target file %s", target)
+		return newDeployerError("deployer.copyFile", "failed to create target file", err, apperrors.Metadata{
+			"target": target,
+		})
 	}
 
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
-		return errors.Wrapf(err, "copying data from %s to %s", source, target)
+		return newDeployerError("deployer.copyFile", "failed to copy file data", err, apperrors.Metadata{
+			"source": source,
+			"target": target,
+		})
 	}
 
 	if err := out.Close(); err != nil {
-		return errors.Wrapf(err, "closing target file %s", target)
+		return newDeployerError("deployer.copyFile", "failed to close target file", err, apperrors.Metadata{
+			"target": target,
+		})
 	}
 
 	return nil
@@ -84,11 +105,15 @@ func copyFile(source, target string) error {
 
 func writeSystemdFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return errors.Wrapf(err, "creating directory for %s", path)
+		return newDeployerError("deployer.writeSystemdFile", "failed to create directory", err, apperrors.Metadata{
+			"path": path,
+		})
 	}
 
 	if err := os.WriteFile(path, []byte(content), systemdMode); err != nil {
-		return errors.Wrapf(err, "writing file %s", path)
+		return newDeployerError("deployer.writeSystemdFile", "failed to write file", err, apperrors.Metadata{
+			"path": path,
+		})
 	}
 
 	return nil

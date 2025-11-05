@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -10,12 +12,11 @@ import (
 	configserver "GWD/internal/configurator/server"
 	"GWD/internal/deployer"
 	serverdownloader "GWD/internal/downloader/server"
+	apperrors "GWD/internal/errors"
 	"GWD/internal/logger"
 	menu "GWD/internal/menu/server"
 	"GWD/internal/pkgmgr/dpkg"
 	"GWD/internal/system"
-
-	"github.com/pkg/errors"
 )
 
 type Installer struct {
@@ -47,48 +48,61 @@ func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *ser
 // InstallGWD executes the full GWD installation process
 // This is the core installation function, coordinating all modules to complete system deployment
 func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
+	ctx := context.Background()
+
 	allInstallSetupSteps := []struct {
-		name string
-		fn   func() error
+		name      string
+		operation string
+		category  apperrors.ErrorCategory
+		fn        func() error
 	}{
-		{"Validate configuration", i.config.Validate},
-		{"Create working directories", i.createWorkingDirectories},
-		{"Check runtime environment", i.validateEnvironment},
+		{"Validate configuration", "installer.validateConfiguration", apperrors.ErrCategoryValidation, i.config.Validate},
+		{"Create working directories", "installer.createWorkingDirectories", apperrors.ErrCategorySystem, i.createWorkingDirectories},
+		{"Check runtime environment", "installer.validateEnvironment", apperrors.ErrCategorySystem, i.validateEnvironment},
 	}
 
 	for _, step := range allInstallSetupSteps {
 		i.logger.Progress(step.name)
 		if err := step.fn(); err != nil {
-			return errors.Wrapf(err, "%s failed", step.name)
+			appErr := normalizeInstallerError(err, step.category, step.operation, fmt.Sprintf("%s failed", step.name), apperrors.Metadata{
+				"step": step.name,
+			})
+			i.logger.ErrorWithAppError(ctx, fmt.Sprintf("%s failed", step.name), appErr)
+			return appErr
 		}
 		i.logger.ProgressDone(step.name)
 	}
 
-	// Full installation process, simulating the original bash script's installGWD function
 	installSteps := []struct {
-		name string
-		fn   func() error
+		name      string
+		operation string
+		category  apperrors.ErrorCategory
+		fn        func() error
 	}{
-		{"Upgrade system packages", i.pkgManager.UpgradeSystem},
-		{"Install system dependencies", i.pkgManager.InstallDependencies},
-		{"Set timezone to Asia/Shanghai", configserver.EnsureTimezoneShanghai},
-		{"Configure rng-tools and chrony", configserver.EnsureEntropyAndTimeConfigured},
-		{"Configure unbound", configserver.EnsureUnboundConfig},
-		{"Configure resolvconf", configserver.EnsureResolvconfConfig},
-		{"Download repository files", i.repository.DownloadAll},
-		{"Install tcsss", func() error { return i.installTcsss() }},
-		{"Install DoH server", func() error { return i.installDOHServer() }},
-		{"Install Nginx", func() error { return i.installNginx() }},
-		{"Install vtrui", func() error { return i.installVtrui() }},
-		{"Configure SSL certificate", func() error { return i.configureTLS(domainConfig) }},
-		{"Configure Nginx Web", func() error { return i.configureNginxWeb() }},
-		{"Post-installation configuration", func() error { return i.postInstallConfiguration() }},
+		{"Upgrade system packages", "installer.upgradeSystemPackages", apperrors.ErrCategoryDependency, i.pkgManager.UpgradeSystem},
+		{"Install system dependencies", "installer.installDependencies", apperrors.ErrCategoryDependency, i.pkgManager.InstallDependencies},
+		{"Set timezone to Asia/Shanghai", "installer.configureTimezone", apperrors.ErrCategorySystem, configserver.EnsureTimezoneShanghai},
+		{"Configure rng-tools and chrony", "installer.configureEntropyAndTime", apperrors.ErrCategorySystem, configserver.EnsureEntropyAndTimeConfigured},
+		{"Configure unbound", "installer.configureUnbound", apperrors.ErrCategorySystem, configserver.EnsureUnboundConfig},
+		{"Configure resolvconf", "installer.configureResolvconf", apperrors.ErrCategorySystem, configserver.EnsureResolvconfConfig},
+		{"Download repository files", "installer.downloadRepository", apperrors.ErrCategoryDependency, i.repository.DownloadAll},
+		{"Install tcsss", "installer.installTcsss", apperrors.ErrCategoryDeployment, func() error { return i.installTcsss() }},
+		{"Install DoH server", "installer.installDoH", apperrors.ErrCategoryDeployment, func() error { return i.installDOHServer() }},
+		{"Install Nginx", "installer.installNginx", apperrors.ErrCategoryDeployment, func() error { return i.installNginx() }},
+		{"Install vtrui", "installer.installVtrui", apperrors.ErrCategoryDeployment, func() error { return i.installVtrui() }},
+		{"Configure SSL certificate", "installer.configureTLS", apperrors.ErrCategoryDeployment, func() error { return i.configureTLS(domainConfig) }},
+		{"Configure Nginx Web", "installer.configureNginxWeb", apperrors.ErrCategoryDeployment, func() error { return i.configureNginxWeb() }},
+		{"Post-installation configuration", "installer.postInstall", apperrors.ErrCategoryDeployment, func() error { return i.postInstallConfiguration() }},
 	}
 
 	for _, step := range installSteps {
 		i.logger.Progress(step.name)
 		if err := step.fn(); err != nil {
-			return errors.Wrapf(err, "%s failed", step.name)
+			appErr := normalizeInstallerError(err, step.category, step.operation, fmt.Sprintf("%s failed", step.name), apperrors.Metadata{
+				"step": step.name,
+			})
+			i.logger.ErrorWithAppError(ctx, fmt.Sprintf("%s failed", step.name), appErr)
+			return appErr
 		}
 		i.logger.ProgressDone(step.name)
 	}
@@ -113,7 +127,13 @@ func (i *Installer) createWorkingDirectories() error {
 
 	for _, dir := range directories {
 		if err := os.MkdirAll(dir.path, dir.perm); err != nil {
-			return errors.Wrapf(err, "Failed to create %s: %s", dir.desc, dir.path)
+			return newInstallerError(
+				apperrors.ErrCategorySystem,
+				fmt.Sprintf("failed to create %s", dir.desc),
+				"installer.createWorkingDirectories",
+				err,
+				apperrors.Metadata{"path": dir.path},
+			)
 		}
 		i.logger.Debug("Created directory: %s", dir.path)
 	}
@@ -127,22 +147,28 @@ func (i *Installer) validateEnvironment() error {
 
 	// Check operating system
 	if err := i.validateOperatingSystem(); err != nil {
-		return errors.Wrap(err, "Operating system validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryValidation, "installer.validateEnvironment", "operating system validation failed", nil)
 	}
 
 	// Check architecture support
 	if !i.config.IsSupportedArchitecture() {
-		return errors.Errorf("Unsupported system architecture: %s", i.config.Architecture)
+		return newInstallerError(
+			apperrors.ErrCategoryValidation,
+			"unsupported system architecture",
+			"installer.validateEnvironment",
+			nil,
+			apperrors.Metadata{"architecture": i.config.Architecture},
+		)
 	}
 
 	// Check network connectivity
 	if err := i.validateNetworkConnectivity(); err != nil {
-		return errors.Wrap(err, "Network connectivity validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryNetwork, "installer.validateEnvironment", "network connectivity validation failed", nil)
 	}
 
 	// Check disk space
 	if err := i.validateDiskSpace(); err != nil {
-		return errors.Wrap(err, "Disk space validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategorySystem, "installer.validateEnvironment", "disk space validation failed", nil)
 	}
 
 	i.logger.Debug("Environment validation passed")
@@ -155,14 +181,26 @@ func (i *Installer) validateOperatingSystem() error {
 	// Check /etc/os-release file
 	content, err := os.ReadFile("/etc/os-release")
 	if err != nil {
-		return errors.Wrap(err, "Failed to read system information")
+		return newInstallerError(
+			apperrors.ErrCategorySystem,
+			"failed to read system information",
+			"installer.validateOperatingSystem",
+			err,
+			apperrors.Metadata{"path": "/etc/os-release"},
+		)
 	}
 
 	osInfo := string(content)
 
 	// Check if it's a Debian system
 	if !strings.Contains(osInfo, "ID=debian") && !strings.Contains(osInfo, "ID_LIKE=debian") {
-		return errors.New("GWD only supports Debian and its derivatives")
+		return newInstallerError(
+			apperrors.ErrCategoryValidation,
+			"unsupported operating system",
+			"installer.validateOperatingSystem",
+			nil,
+			apperrors.Metadata{"os_release": osInfo},
+		)
 	}
 
 	// Log detected system information
@@ -188,7 +226,9 @@ func (i *Installer) validateNetworkConnectivity() error {
 
 	for _, url := range testURLs {
 		if err := i.testHTTPConnection(url); err != nil {
-			return errors.Wrapf(err, "Network connectivity test failed: %s", url)
+			return normalizeInstallerError(err, apperrors.ErrCategoryNetwork, "installer.validateNetworkConnectivity", "network connectivity test failed", apperrors.Metadata{
+				"url": url,
+			})
 		}
 	}
 
@@ -203,12 +243,27 @@ func (i *Installer) testHTTPConnection(url string) error {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return err
+		return newInstallerError(
+			apperrors.ErrCategoryNetwork,
+			"failed to establish HTTP connection",
+			"installer.testHTTPConnection",
+			err,
+			apperrors.Metadata{"url": url},
+		)
 	}
 	resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return errors.Errorf("HTTP error: %d", resp.StatusCode)
+		return newInstallerError(
+			apperrors.ErrCategoryNetwork,
+			"received unsuccessful HTTP status",
+			"installer.testHTTPConnection",
+			nil,
+			apperrors.Metadata{
+				"url":         url,
+				"status_code": resp.StatusCode,
+			},
+		)
 	}
 
 	return nil
@@ -220,7 +275,13 @@ func (i *Installer) validateDiskSpace() error {
 	// Check root partition space
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {
-		return errors.Wrap(err, "Failed to get disk space information")
+		return newInstallerError(
+			apperrors.ErrCategorySystem,
+			"failed to get disk space information",
+			"installer.validateDiskSpace",
+			err,
+			apperrors.Metadata{"path": "/"},
+		)
 	}
 
 	// Calculate available space (bytes)
@@ -230,8 +291,16 @@ func (i *Installer) validateDiskSpace() error {
 	// At least 1GB of free space is required
 	const minSpaceMB = 1024
 	if availableMB < minSpaceMB {
-		return errors.Errorf("Insufficient disk space, at least %dMB required, currently %dMB available",
-			minSpaceMB, availableMB)
+		return newInstallerError(
+			apperrors.ErrCategorySystem,
+			"insufficient disk space",
+			"installer.validateDiskSpace",
+			nil,
+			apperrors.Metadata{
+				"required_mb":  minSpaceMB,
+				"available_mb": availableMB,
+			},
+		)
 	}
 
 	i.logger.Debug("Disk available space: %d MB", availableMB)
@@ -242,10 +311,10 @@ func (i *Installer) validateDiskSpace() error {
 func (i *Installer) installDOHServer() error {
 	i.logger.Info("Configuring DoH server...")
 	if err := i.doh.Install(); err != nil {
-		return errors.Wrap(err, "DoH deployment failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installDoH", "DoH deployment failed", nil)
 	}
 	if err := i.doh.Validate(); err != nil {
-		return errors.Wrap(err, "DoH validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installDoH", "DoH validation failed", nil)
 	}
 
 	return nil
@@ -255,10 +324,10 @@ func (i *Installer) installDOHServer() error {
 func (i *Installer) installNginx() error {
 	i.logger.Info("Configuring Nginx server...")
 	if err := i.nginx.Install(); err != nil {
-		return errors.Wrap(err, "Nginx deployment failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installNginx", "Nginx deployment failed", nil)
 	}
 	if err := i.nginx.Validate(); err != nil {
-		return errors.Wrap(err, "Nginx validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installNginx", "Nginx validation failed", nil)
 	}
 	return nil
 }
@@ -270,10 +339,10 @@ func (i *Installer) installNginx() error {
 func (i *Installer) installTcsss() error {
 	i.logger.Info("Configuring tcsss service...")
 	if err := i.tcsss.Install(); err != nil {
-		return errors.Wrap(err, "tcsss deployment failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installTcsss", "tcsss deployment failed", nil)
 	}
 	if err := i.tcsss.Validate(); err != nil {
-		return errors.Wrap(err, "tcsss validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installTcsss", "tcsss validation failed", nil)
 	}
 	return nil
 }
@@ -282,10 +351,10 @@ func (i *Installer) installTcsss() error {
 func (i *Installer) installVtrui() error {
 	i.logger.Info("Configuring vtrui service...")
 	if err := i.vtrui.Install(); err != nil {
-		return errors.Wrap(err, "vtrui deployment failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installVtrui", "vtrui deployment failed", nil)
 	}
 	if err := i.vtrui.Validate(); err != nil {
-		return errors.Wrap(err, "vtrui validation failed")
+		return normalizeInstallerError(err, apperrors.ErrCategoryDeployment, "installer.installVtrui", "vtrui validation failed", nil)
 	}
 	return nil
 }
@@ -325,4 +394,60 @@ func (i *Installer) configureNginxWeb() error {
 func (i *Installer) postInstallConfiguration() error {
 	i.logger.Info("Performing post-installation configuration...")
 	return nil
+}
+
+func normalizeInstallerError(err error, category apperrors.ErrorCategory, operation, message string, metadata apperrors.Metadata) *apperrors.AppError {
+	if err == nil {
+		return newInstallerError(category, message, operation, nil, metadata)
+	}
+
+	if appErr, ok := apperrors.As(err); ok {
+		if appErr.Module == "" {
+			appErr.WithModule("installer")
+		}
+		if appErr.Operation == "" {
+			appErr.WithOperation(operation)
+		}
+		if metadata != nil {
+			appErr.WithFields(metadata)
+		}
+		if appErr.Message == "" {
+			appErr.Message = message
+		}
+		return appErr
+	}
+
+	return newInstallerError(category, message, operation, err, metadata)
+}
+
+func newInstallerError(category apperrors.ErrorCategory, message, operation string, err error, metadata apperrors.Metadata) *apperrors.AppError {
+	code := installerCodeForCategory(category)
+	appErr := apperrors.New(code, category, message, err).
+		WithModule("installer").
+		WithOperation(operation)
+	if metadata != nil {
+		appErr.WithFields(metadata)
+	}
+	return appErr
+}
+
+func installerCodeForCategory(category apperrors.ErrorCategory) string {
+	switch category {
+	case apperrors.ErrCategoryValidation:
+		return apperrors.CodeValidationGeneric
+	case apperrors.ErrCategoryDependency:
+		return apperrors.CodeDependencyGeneric
+	case apperrors.ErrCategoryNetwork:
+		return apperrors.CodeNetworkGeneric
+	case apperrors.ErrCategoryDeployment:
+		return apperrors.CodeDeploymentGeneric
+	case apperrors.ErrCategoryConfig:
+		return apperrors.CodeConfigGeneric
+	case apperrors.ErrCategoryFirewall:
+		return apperrors.CodeFirewallGeneric
+	case apperrors.ErrCategoryDatabase:
+		return apperrors.CodeDatabaseGeneric
+	default:
+		return apperrors.CodeSystemGeneric
+	}
 }

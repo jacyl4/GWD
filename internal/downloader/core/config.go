@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,7 +59,9 @@ var embeddedBaseConfig embed.FS
 func BaseConfig() (*DownloadConfig, error) {
 	data, err := embeddedBaseConfig.ReadFile("base-config.yaml")
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read embedded base config")
+		return nil, newConfigError("config.BaseConfig", "failed to read embedded base config", err, apperrors.Metadata{
+			"resource": "base-config.yaml",
+		})
 	}
 	return decodeConfig(data)
 }
@@ -73,7 +75,9 @@ func DefaultConfig() (*DownloadConfig, error) {
 func LoadConfig(path string) (*DownloadConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read config file: %s", path)
+		return nil, newConfigError("config.LoadConfig", "failed to read config file", err, apperrors.Metadata{
+			"path": path,
+		})
 	}
 	return decodeConfig(data)
 }
@@ -89,7 +93,7 @@ func ParseConfig(data []byte) (*DownloadConfig, error) {
 // MergeConfigs merges multiple configurations together, later entries overriding earlier ones.
 func MergeConfigs(cfgs ...*DownloadConfig) (*DownloadConfig, error) {
 	if len(cfgs) == 0 {
-		return nil, errors.New("no configurations provided")
+		return nil, newConfigError("config.MergeConfigs", "no configurations provided", nil, nil)
 	}
 
 	var result DownloadConfig
@@ -154,7 +158,17 @@ func MergeConfigs(cfgs ...*DownloadConfig) (*DownloadConfig, error) {
 func decodeConfig(data []byte) (*DownloadConfig, error) {
 	var cfg DownloadConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, errors.Wrap(err, "failed to parse download configuration")
+		return nil, newConfigError("config.decode", "failed to parse download configuration", err, nil)
 	}
 	return &cfg, nil
+}
+
+func newConfigError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
+	appErr := apperrors.ConfigError(apperrors.CodeConfigGeneric, message, err).
+		WithModule("downloader.config").
+		WithOperation(operation)
+	if metadata != nil {
+		appErr.WithFields(metadata)
+	}
+	return appErr
 }

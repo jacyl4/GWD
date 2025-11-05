@@ -2,7 +2,8 @@ package nftables
 
 import (
 	nf "github.com/google/nftables"
-	"github.com/pkg/errors"
+
+	apperrors "GWD/internal/errors"
 )
 
 func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
@@ -29,7 +30,9 @@ func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
 	if existing != nil {
 		conn.DelFlowtable(&nf.Flowtable{Table: table, Name: cfg.FlowtableName})
 		if err := conn.Flush(); err != nil {
-			return errors.Wrap(err, "failed to delete existing flowtable")
+			return wrapFirewallError(err, "nftables.ensureFlowtable.flushDelete", "failed to delete existing flowtable", apperrors.Metadata{
+				"flowtable": cfg.FlowtableName,
+			})
 		}
 	}
 
@@ -42,7 +45,9 @@ func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
 	})
 
 	if err := conn.Flush(); err != nil {
-		return errors.Wrap(err, "failed to apply flowtable configuration")
+		return wrapFirewallError(err, "nftables.ensureFlowtable.flushApply", "failed to apply flowtable configuration", apperrors.Metadata{
+			"flowtable": cfg.FlowtableName,
+		})
 	}
 
 	return nil
@@ -51,7 +56,9 @@ func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
 func findFlowtable(conn *nf.Conn, table *nf.Table, name string) (*nf.Flowtable, error) {
 	flowtables, err := conn.ListFlowtables(table)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to list flowtables")
+		return nil, wrapFirewallError(err, "nftables.findFlowtable", "failed to list flowtables", apperrors.Metadata{
+			"table": table.Name,
+		})
 	}
 	for _, ft := range flowtables {
 		if ft.Name == name {

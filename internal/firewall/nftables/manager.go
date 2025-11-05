@@ -2,7 +2,6 @@ package nftables
 
 import (
 	nf "github.com/google/nftables"
-	"github.com/pkg/errors"
 )
 
 // Ensure reconciles the nftables objects required by GWD: table, flowtable,
@@ -80,7 +79,7 @@ func Remove(cfg *Config) error {
 	})
 
 	if err := conn.Flush(); err != nil {
-		return errors.Wrap(err, "failed to delete nftables table")
+		return wrapFirewallError(err, "nftables.Remove", "failed to delete nftables table", nil)
 	}
 
 	return nil

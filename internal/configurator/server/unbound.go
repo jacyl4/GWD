@@ -65,24 +65,24 @@ WantedBy=multi-user.target
 `
 
 func EnsureUnboundConfig() error {
-    if err := os.MkdirAll(unboundConfigDir, 0755); err != nil {
+	if err := os.MkdirAll(unboundConfigDir, 0755); err != nil {
 		return errors.Wrapf(err, "failed to create Unbound configuration directory %s", unboundConfigDir)
 	}
 
-    if err := os.WriteFile("/etc/unbound/unbound.conf", []byte(unboundConfigContent), 0644); err != nil {
+	if err := os.WriteFile("/etc/unbound/unbound.conf", []byte(unboundConfigContent), 0644); err != nil {
 		return errors.Wrap(err, "failed to write Unbound configuration file /etc/unbound/unbound.conf")
 	}
 
-    if err := writeUnboundServiceUnit(); err != nil {
-        return err
-    }
+	if err := writeUnboundServiceUnit(); err != nil {
+		return err
+	}
 
-    return nil
+	return nil
 }
 
 func writeUnboundServiceUnit() error {
 	servicePath := "/etc/systemd/system/unbound.service"
-    if err := os.WriteFile(servicePath, []byte(unboundServiceContent), 0644); err != nil {
+	if err := os.WriteFile(servicePath, []byte(unboundServiceContent), 0644); err != nil {
 		return errors.Wrapf(err, "failed to write unbound service file %s", servicePath)
 	}
 
@@ -95,5 +95,5 @@ func writeUnboundServiceUnit() error {
 	if err := exec.Command("systemctl", "restart", "unbound").Run(); err != nil {
 		return errors.Wrap(err, "failed to restart unbound service")
 	}
-    return nil
+	return nil
 }

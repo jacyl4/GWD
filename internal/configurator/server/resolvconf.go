@@ -11,10 +11,10 @@ import (
 
 const (
 	// resolvconf files
-	resolvconfHeadFile    = "/etc/resolvconf/resolv.conf.d/head"
-	resolvconfOriginal    = "/etc/resolvconf/resolv.conf.d/original"
-	resolvconfBase        = "/etc/resolvconf/resolv.conf.d/base"
-	resolvconfTail        = "/etc/resolvconf/resolv.conf.d/tail"
+	resolvconfHeadFile = "/etc/resolvconf/resolv.conf.d/head"
+	resolvconfOriginal = "/etc/resolvconf/resolv.conf.d/original"
+	resolvconfBase     = "/etc/resolvconf/resolv.conf.d/base"
+	resolvconfTail     = "/etc/resolvconf/resolv.conf.d/tail"
 
 	// resolv.conf targets
 	etcResolvConf        = "/etc/resolv.conf"

@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 func detectArchitecture() (string, error) {
@@ -17,7 +17,9 @@ func detectArchitecture() (string, error) {
 		case "arm64":
 			return "arm64", nil
 		default:
-			return "", errors.Errorf("unsupported architecture: %s", runtime.GOARCH)
+			return "", newSystemError("system.detectArchitecture", "unsupported architecture", nil, apperrors.Metadata{
+				"goarch": runtime.GOARCH,
+			})
 		}
 	}
 
@@ -26,7 +28,9 @@ func detectArchitecture() (string, error) {
 	case "amd64", "arm64":
 		return arch, nil
 	default:
-		return "", errors.Errorf("unsupported architecture: %s", arch)
+		return "", newSystemError("system.detectArchitecture", "unsupported architecture", nil, apperrors.Metadata{
+			"arch": arch,
+		})
 	}
 }
 

@@ -2,7 +2,8 @@ package nftables
 
 import (
 	nf "github.com/google/nftables"
-	"github.com/pkg/errors"
+
+	apperrors "GWD/internal/errors"
 )
 
 func ensureBaseChains(table *nf.Table, cfg *Config) error {
@@ -10,7 +11,9 @@ func ensureBaseChains(table *nf.Table, cfg *Config) error {
 
 	chains, err := conn.ListChainsOfTableFamily(table.Family)
 	if err != nil {
-		return errors.Wrap(err, "failed to enumerate chains")
+		return wrapFirewallError(err, "nftables.ensureBaseChains.list", "failed to enumerate chains", apperrors.Metadata{
+			"table": table.Name,
+		})
 	}
 
 	existing := make(map[string]struct{})
@@ -52,7 +55,9 @@ func ensureBaseChains(table *nf.Table, cfg *Config) error {
 	}
 
 	if err := conn.Flush(); err != nil {
-		return errors.Wrap(err, "failed to ensure chains")
+		return wrapFirewallError(err, "nftables.ensureBaseChains.flush", "failed to ensure chains", apperrors.Metadata{
+			"table": table.Name,
+		})
 	}
 
 	return nil
@@ -91,7 +96,9 @@ func programChains(table *nf.Table, cfg *Config, lanSet *nf.Set, flowDevices, in
 	}
 
 	if err := conn.Flush(); err != nil {
-		return errors.Wrap(err, "failed to program gwd chains")
+		return wrapFirewallError(err, "nftables.programChains.flush", "failed to program nftables chains", apperrors.Metadata{
+			"table": table.Name,
+		})
 	}
 
 	return nil

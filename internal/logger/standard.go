@@ -138,6 +138,12 @@ func (l *StandardLogger) With(fields ...Field) Logger {
 	return child
 }
 
+// WithTrace derives a logger pre-populated with trace metadata from ctx.
+func (l *StandardLogger) WithTrace(ctx context.Context) Logger {
+	traceFields := traceFieldsFromContext(ctx)
+	return l.With(traceFields...)
+}
+
 // SetLevel adjusts the minimum log level emitted.
 func (l *StandardLogger) SetLevel(level Level) {
 	l.mu.Lock()
@@ -176,7 +182,7 @@ func (l *StandardLogger) log(level Level, format string, args ...interface{}) {
 	l.write(entry)
 }
 
-func (l *StandardLogger) logContext(_ context.Context, level Level, msg string, fields ...Field) {
+func (l *StandardLogger) logContext(ctx context.Context, level Level, msg string, fields ...Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -186,6 +192,9 @@ func (l *StandardLogger) logContext(_ context.Context, level Level, msg string, 
 
 	allFields := append([]Field{}, l.fields...)
 	allFields = append(allFields, fields...)
+	if traceFields := traceFieldsFromContext(ctx); len(traceFields) > 0 {
+		allFields = append(allFields, traceFields...)
+	}
 
 	entry := &Entry{
 		Time:    time.Now(),

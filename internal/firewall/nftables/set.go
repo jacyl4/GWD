@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	apperrors "GWD/internal/errors"
 	nf "github.com/google/nftables"
-	"github.com/pkg/errors"
 )
 
 func ensureLanCIDRSet(table *nf.Table, cfg *Config) (*nf.Set, error) {
@@ -30,10 +30,14 @@ func ensureLanCIDRSet(table *nf.Table, cfg *Config) (*nf.Set, error) {
 			Interval: true,
 		}
 		if err := conn.AddSet(set, nil); err != nil {
-			return nil, errors.Wrapf(err, "failed to create LAN CIDR set %s", cfg.LanSetName)
+			return nil, wrapFirewallError(err, "nftables.ensureLanCIDRSet.addSet", "failed to create LAN CIDR set", apperrors.Metadata{
+				"set": cfg.LanSetName,
+			})
 		}
 		if err := conn.Flush(); err != nil {
-			return nil, errors.Wrap(err, "failed to materialize LAN CIDR set")
+			return nil, wrapFirewallError(err, "nftables.ensureLanCIDRSet.flushCreate", "failed to materialize LAN CIDR set", apperrors.Metadata{
+				"set": cfg.LanSetName,
+			})
 		}
 		created = true
 		set, err = findSet(conn, tableRef, cfg.LanSetName)
@@ -41,7 +45,9 @@ func ensureLanCIDRSet(table *nf.Table, cfg *Config) (*nf.Set, error) {
 			return nil, err
 		}
 		if set == nil {
-			return nil, errors.Errorf("failed to retrieve newly created LAN CIDR set %s", cfg.LanSetName)
+			return nil, wrapFirewallError(nil, "nftables.ensureLanCIDRSet.lookup", "failed to retrieve newly created LAN CIDR set", apperrors.Metadata{
+				"set": cfg.LanSetName,
+			})
 		}
 	}
 
@@ -52,7 +58,9 @@ func ensureLanCIDRSet(table *nf.Table, cfg *Config) (*nf.Set, error) {
 
 	current, err := conn.GetSetElements(set)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read existing CIDRs for set %s", set.Name)
+		return nil, wrapFirewallError(err, "nftables.ensureLanCIDRSet.getElements", "failed to read existing CIDRs for set", apperrors.Metadata{
+			"set": set.Name,
+		})
 	}
 
 	sortSetElements(desired)
@@ -62,19 +70,25 @@ func ensureLanCIDRSet(table *nf.Table, cfg *Config) (*nf.Set, error) {
 
 	if len(toDel) > 0 {
 		if err := conn.SetDeleteElements(set, toDel); err != nil {
-			return nil, errors.Wrapf(err, "failed to prune stale CIDRs from set %s", set.Name)
+			return nil, wrapFirewallError(err, "nftables.ensureLanCIDRSet.deleteElements", "failed to prune stale CIDRs from set", apperrors.Metadata{
+				"set": set.Name,
+			})
 		}
 	}
 
 	if len(toAdd) > 0 {
 		if err := conn.SetAddElements(set, toAdd); err != nil {
-			return nil, errors.Wrapf(err, "failed to add CIDRs to set %s", set.Name)
+			return nil, wrapFirewallError(err, "nftables.ensureLanCIDRSet.addElements", "failed to add CIDRs to set", apperrors.Metadata{
+				"set": set.Name,
+			})
 		}
 	}
 
 	if created || len(toAdd) > 0 || len(toDel) > 0 {
 		if err := conn.Flush(); err != nil {
-			return nil, errors.Wrapf(err, "failed to apply CIDR updates to set %s", set.Name)
+			return nil, wrapFirewallError(err, "nftables.ensureLanCIDRSet.flush", "failed to apply CIDR updates to set", apperrors.Metadata{
+				"set": set.Name,
+			})
 		}
 	}
 
@@ -90,7 +104,9 @@ func updateLanSet(conn *nf.Conn, set *nf.Set, cidrs []string) error {
 
 	current, err := conn.GetSetElements(set)
 	if err != nil {
-		return errors.Wrapf(err, "failed to read existing CIDRs for set %s", set.Name)
+		return wrapFirewallError(err, "nftables.updateLanSet.getElements", "failed to read existing CIDRs for set", apperrors.Metadata{
+			"set": set.Name,
+		})
 	}
 
 	sortSetElements(desired)
@@ -100,19 +116,25 @@ func updateLanSet(conn *nf.Conn, set *nf.Set, cidrs []string) error {
 
 	if len(toDel) > 0 {
 		if err := conn.SetDeleteElements(set, toDel); err != nil {
-			return errors.Wrapf(err, "failed to prune stale CIDRs from set %s", set.Name)
+			return wrapFirewallError(err, "nftables.updateLanSet.deleteElements", "failed to prune stale CIDRs from set", apperrors.Metadata{
+				"set": set.Name,
+			})
 		}
 	}
 
 	if len(toAdd) > 0 {
 		if err := conn.SetAddElements(set, toAdd); err != nil {
-			return errors.Wrapf(err, "failed to add CIDRs to set %s", set.Name)
+			return wrapFirewallError(err, "nftables.updateLanSet.addElements", "failed to add CIDRs to set", apperrors.Metadata{
+				"set": set.Name,
+			})
 		}
 	}
 
 	if len(toAdd) > 0 || len(toDel) > 0 {
 		if err := conn.Flush(); err != nil {
-			return errors.Wrapf(err, "failed to apply CIDR updates to set %s", set.Name)
+			return wrapFirewallError(err, "nftables.updateLanSet.flush", "failed to apply CIDR updates to set", apperrors.Metadata{
+				"set": set.Name,
+			})
 		}
 	}
 	return nil
@@ -121,7 +143,9 @@ func updateLanSet(conn *nf.Conn, set *nf.Set, cidrs []string) error {
 func findSet(conn *nf.Conn, table *nf.Table, name string) (*nf.Set, error) {
 	sets, err := conn.GetSets(table)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to enumerate sets")
+		return nil, wrapFirewallError(err, "nftables.findSet", "failed to enumerate sets", apperrors.Metadata{
+			"table": table.Name,
+		})
 	}
 	for _, s := range sets {
 		if s.Name == name {
@@ -139,7 +163,9 @@ func cidrToElements(cidrs []string) ([]nf.SetElement, error) {
 		}
 		_, network, err := net.ParseCIDR(strings.TrimSpace(cidr))
 		if err != nil {
-			return nil, errors.Wrapf(err, "invalid CIDR: %s", cidr)
+			return nil, wrapFirewallError(err, "nftables.cidrToElements.parse", "invalid CIDR provided", apperrors.Metadata{
+				"cidr": cidr,
+			})
 		}
 
 		start, end, err := cidrRange(network)
@@ -159,17 +185,23 @@ func cidrToElements(cidrs []string) ([]nf.SetElement, error) {
 func cidrRange(n *net.IPNet) ([]byte, []byte, error) {
 	start := networkIP(n)
 	if start == nil {
-		return nil, nil, errors.Errorf("unsupported address family for network %s", n.String())
+		return nil, nil, wrapFirewallError(nil, "nftables.cidrRange", "unsupported address family for network", apperrors.Metadata{
+			"network": n.String(),
+		})
 	}
 
 	last := broadcastIP(n)
 	if last == nil {
-		return nil, nil, errors.Errorf("failed to compute broadcast for %s", n.String())
+		return nil, nil, wrapFirewallError(nil, "nftables.cidrRange", "failed to compute broadcast address", apperrors.Metadata{
+			"network": n.String(),
+		})
 	}
 
 	end := incrementIP(last)
 	if end == nil {
-		return nil, nil, errors.Errorf("CIDR %s overflowed maximum address", n.String())
+		return nil, nil, wrapFirewallError(nil, "nftables.cidrRange", "CIDR overflowed maximum address", apperrors.Metadata{
+			"network": n.String(),
+		})
 	}
 
 	return start, end, nil
@@ -239,10 +271,14 @@ func ensureIfaceSet(conn *nf.Conn, table *nf.Table, name string, ifaces []string
 			KeyType: nf.TypeIFName,
 		}
 		if err := conn.AddSet(set, nil); err != nil {
-			return nil, errors.Wrapf(err, "failed to create interface set %s", name)
+			return nil, wrapFirewallError(err, "nftables.ensureIfaceSet.addSet", "failed to create interface set", apperrors.Metadata{
+				"set": name,
+			})
 		}
 		if err := conn.Flush(); err != nil {
-			return nil, errors.Wrapf(err, "failed to materialize interface set %s", name)
+			return nil, wrapFirewallError(err, "nftables.ensureIfaceSet.flushCreate", "failed to materialize interface set", apperrors.Metadata{
+				"set": name,
+			})
 		}
 		created = true
 		set, err = findSet(conn, tableRef, name)
@@ -250,7 +286,9 @@ func ensureIfaceSet(conn *nf.Conn, table *nf.Table, name string, ifaces []string
 			return nil, err
 		}
 		if set == nil {
-			return nil, errors.Errorf("failed to retrieve newly created interface set %s", name)
+			return nil, wrapFirewallError(nil, "nftables.ensureIfaceSet.lookup", "failed to retrieve newly created interface set", apperrors.Metadata{
+				"set": name,
+			})
 		}
 	}
 
@@ -261,7 +299,9 @@ func ensureIfaceSet(conn *nf.Conn, table *nf.Table, name string, ifaces []string
 
 	current, err := conn.GetSetElements(set)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list elements for set %s", name)
+		return nil, wrapFirewallError(err, "nftables.ensureIfaceSet.getElements", "failed to list elements for set", apperrors.Metadata{
+			"set": name,
+		})
 	}
 
 	sortSetElements(desired)
@@ -271,19 +311,25 @@ func ensureIfaceSet(conn *nf.Conn, table *nf.Table, name string, ifaces []string
 
 	if len(toDel) > 0 {
 		if err := conn.SetDeleteElements(set, toDel); err != nil {
-			return nil, errors.Wrapf(err, "failed to delete stale interface entries from set %s", name)
+			return nil, wrapFirewallError(err, "nftables.ensureIfaceSet.deleteElements", "failed to delete stale interface entries from set", apperrors.Metadata{
+				"set": name,
+			})
 		}
 	}
 
 	if len(toAdd) > 0 {
 		if err := conn.SetAddElements(set, toAdd); err != nil {
-			return nil, errors.Wrapf(err, "failed to add interface entries to set %s", name)
+			return nil, wrapFirewallError(err, "nftables.ensureIfaceSet.addElements", "failed to add interface entries to set", apperrors.Metadata{
+				"set": name,
+			})
 		}
 	}
 
 	if created || len(toAdd) > 0 || len(toDel) > 0 {
 		if err := conn.Flush(); err != nil {
-			return nil, errors.Wrapf(err, "failed to apply updates to interface set %s", name)
+			return nil, wrapFirewallError(err, "nftables.ensureIfaceSet.flush", "failed to apply updates to interface set", apperrors.Metadata{
+				"set": name,
+			})
 		}
 	}
 

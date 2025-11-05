@@ -42,10 +42,10 @@ func EnsureSampleInstalled() error {
 
 		// Cleanup temp dir
 		_ = os.RemoveAll(tmpSampleDir)
-    } else {
-        _ = os.Remove(sampleZipPath)
-        return fmt.Errorf("sample zip download failed")
-    }
+	} else {
+		_ = os.Remove(sampleZipPath)
+		return fmt.Errorf("sample zip download failed")
+	}
 
 	// Ensure spt file has size >= 102400 KB (100MB)
 	if err := ensureSptSize(); err != nil {
@@ -109,5 +109,3 @@ func ensureSptSize() error {
 	}
 	return nil
 }
-
-

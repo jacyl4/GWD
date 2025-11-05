@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 // DebianRelease captures the metadata required to describe a Debian suite.
@@ -35,15 +35,17 @@ var debianUpgradePath = []DebianRelease{
 func UpgradeDebianTo13() error {
 	info, err := detectDebianReleaseInfo()
 	if err != nil {
-		return errors.Wrap(err, "failed to detect Debian release information")
+		return wrapDPKGError(err, "dpkg.upgrade.detectRelease", "failed to detect Debian release information", nil)
 	}
 
 	if info.ID != "debian" {
-		return errors.Errorf("unsupported distribution: %s", info.ID)
+		return wrapDPKGError(nil, "dpkg.upgrade.detectRelease", "unsupported distribution", apperrors.Metadata{
+			"distribution": info.ID,
+		})
 	}
 
 	if err := ensureAptConfiguration(); err != nil {
-		return errors.Wrap(err, "failed to apply apt configuration")
+		return wrapDPKGError(err, "dpkg.upgrade.ensureAptConfiguration", "failed to apply apt configuration", nil)
 	}
 
 	idx, err := releaseIndex(info)
@@ -60,23 +62,32 @@ func UpgradeDebianTo13() error {
 		next := debianUpgradePath[idx+1]
 
 		if err := ensureFullyUpgraded(current); err != nil {
-			return errors.Wrapf(err, "failed to prepare %s for upgrade", current.Codename)
+			return wrapDPKGError(err, "dpkg.upgrade.ensureFullyUpgraded", "failed to prepare release for upgrade", apperrors.Metadata{
+				"codename": current.Codename,
+			})
 		}
 
 		if err := updateAptSources(current.Codename, next.Codename); err != nil {
-			return errors.Wrapf(err, "failed to update apt sources from %s to %s", current.Codename, next.Codename)
+			return wrapDPKGError(err, "dpkg.upgrade.updateAptSources", "failed to update apt sources", apperrors.Metadata{
+				"from": current.Codename,
+				"to":   next.Codename,
+			})
 		}
 
 		if err := runCommand("apt-get", "update", "--allow-releaseinfo-change"); err != nil {
-			return errors.Wrapf(err, "apt-get update failed after switching to %s", next.Codename)
+			return wrapDPKGError(err, "dpkg.upgrade.aptUpdate", "apt-get update failed after switching release", apperrors.Metadata{
+				"target": next.Codename,
+			})
 		}
 
 		if err := runCommand("apt-get", "-y", "full-upgrade"); err != nil {
-			return errors.Wrapf(err, "apt-get full-upgrade failed while upgrading to %s", next.Codename)
+			return wrapDPKGError(err, "dpkg.upgrade.fullUpgrade", "apt-get full-upgrade failed", apperrors.Metadata{
+				"target": next.Codename,
+			})
 		}
 
 		if err := runCommand("apt-get", "-y", "autoremove"); err != nil {
-			return errors.Wrap(err, "apt-get autoremove failed")
+			return wrapDPKGError(err, "dpkg.upgrade.autoremove", "apt-get autoremove failed", nil)
 		}
 	}
 
@@ -85,11 +96,15 @@ func UpgradeDebianTo13() error {
 
 func ensureFullyUpgraded(release DebianRelease) error {
 	if err := runCommand("apt-get", "update"); err != nil {
-		return errors.Wrapf(err, "apt-get update failed on %s", release.Codename)
+		return wrapDPKGError(err, "dpkg.ensureFullyUpgraded", "apt-get update failed", apperrors.Metadata{
+			"codename": release.Codename,
+		})
 	}
 
 	if err := runCommand("apt-get", "-y", "full-upgrade"); err != nil {
-		return errors.Wrapf(err, "apt-get full-upgrade failed on %s", release.Codename)
+		return wrapDPKGError(err, "dpkg.ensureFullyUpgraded", "apt-get full-upgrade failed", apperrors.Metadata{
+			"codename": release.Codename,
+		})
 	}
 
 	return nil
@@ -108,7 +123,9 @@ APT::Install-Suggests "false";`,
 
 	for file, content := range aptConfigs {
 		if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
-			return errors.Wrapf(err, "failed to write apt configuration file: %s", file)
+			return wrapDPKGError(err, "dpkg.ensureAptConfiguration", "failed to write apt configuration file", apperrors.Metadata{
+				"path": file,
+			})
 		}
 	}
 
@@ -122,7 +139,9 @@ func releaseForCodename(codename string) (*DebianRelease, error) {
 		}
 	}
 
-	return nil, errors.Errorf("unknown Debian codename: %s", codename)
+	return nil, wrapDPKGError(nil, "dpkg.releaseForCodename", "unknown Debian codename", apperrors.Metadata{
+		"codename": codename,
+	})
 }
 
 func releaseRequiresNonFreeFirmware(release *DebianRelease) bool {
@@ -149,7 +168,9 @@ func detectDebianReleaseInfo() (*debianReleaseInfo, error) {
 
 	file, err := os.Open("/etc/os-release")
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to open /etc/os-release")
+		return nil, wrapDPKGError(err, "dpkg.detectDebianReleaseInfo", "unable to open /etc/os-release", apperrors.Metadata{
+			"path": "/etc/os-release",
+		})
 	}
 	defer file.Close()
 
@@ -179,7 +200,9 @@ func detectDebianReleaseInfo() (*debianReleaseInfo, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, errors.Wrap(err, "failed to parse /etc/os-release")
+		return nil, wrapDPKGError(err, "dpkg.detectDebianReleaseInfo", "failed to parse /etc/os-release", apperrors.Metadata{
+			"path": "/etc/os-release",
+		})
 	}
 
 	if info.Version == "" {
@@ -198,7 +221,10 @@ func detectDebianReleaseInfo() (*debianReleaseInfo, error) {
 	}
 
 	if info.Version == "" || info.Codename == "" {
-		return nil, errors.Errorf("could not determine Debian version (%s) codename (%s)", info.Version, info.Codename)
+		return nil, wrapDPKGError(nil, "dpkg.detectDebianReleaseInfo", "could not determine Debian version and codename", apperrors.Metadata{
+			"version":  info.Version,
+			"codename": info.Codename,
+		})
 	}
 
 	return info, nil
@@ -211,7 +237,10 @@ func releaseIndex(info *debianReleaseInfo) (int, error) {
 		}
 	}
 
-	return -1, errors.Errorf("unsupported Debian version: %s (%s)", info.Version, info.Codename)
+	return -1, wrapDPKGError(nil, "dpkg.releaseIndex", "unsupported Debian version", apperrors.Metadata{
+		"version":  info.Version,
+		"codename": info.Codename,
+	})
 }
 
 func normalizeDebianVersion(version string) string {
@@ -264,12 +293,16 @@ func updateAptSources(currentCodename, nextCodename string) error {
 func rewriteSourcesList(path string, current, next *DebianRelease) error {
 	original, err := os.ReadFile(path)
 	if err != nil {
-		return errors.Wrapf(err, "failed to read %s", path)
+		return wrapDPKGError(err, "dpkg.rewriteSourcesList.read", "failed to read sources.list entry", apperrors.Metadata{
+			"path": path,
+		})
 	}
 
 	updated, changed, err := rewriteSourcesContent(original, current, next)
 	if err != nil {
-		return errors.Wrapf(err, "failed to update suites in %s", path)
+		return wrapDPKGError(err, "dpkg.rewriteSourcesList.transform", "failed to update suites in sources list", apperrors.Metadata{
+			"path": path,
+		})
 	}
 
 	if !changed {
@@ -282,11 +315,15 @@ func rewriteSourcesList(path string, current, next *DebianRelease) error {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return errors.Wrapf(err, "failed to stat %s", path)
+		return wrapDPKGError(err, "dpkg.rewriteSourcesList.stat", "failed to stat sources.list entry", apperrors.Metadata{
+			"path": path,
+		})
 	}
 
 	if err := os.WriteFile(path, updated, info.Mode().Perm()); err != nil {
-		return errors.Wrapf(err, "failed to write %s", path)
+		return wrapDPKGError(err, "dpkg.rewriteSourcesList.write", "failed to write updated sources list", apperrors.Metadata{
+			"path": path,
+		})
 	}
 
 	return nil
@@ -447,7 +484,10 @@ func createBackup(path string, data []byte) error {
 	backupPath := fmt.Sprintf("%s.%s.bak", path, timestamp)
 
 	if err := os.WriteFile(backupPath, data, fs.FileMode(0o644)); err != nil {
-		return errors.Wrapf(err, "failed to create backup for %s", path)
+		return wrapDPKGError(err, "dpkg.createBackup", "failed to create backup", apperrors.Metadata{
+			"path":        path,
+			"backup_path": backupPath,
+		})
 	}
 
 	return nil
@@ -460,7 +500,10 @@ func runCommand(name string, args ...string) error {
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 
 	if err := cmd.Run(); err != nil {
-		return errors.Wrapf(err, "command %s %s failed", name, strings.Join(args, " "))
+		return wrapDPKGError(err, "dpkg.runCommand", "command execution failed", apperrors.Metadata{
+			"command": name,
+			"args":    strings.Join(args, " "),
+		})
 	}
 
 	return nil
