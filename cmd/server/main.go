@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	log := logger.NewLogger()
+	log := logger.NewColoredLogger()
 
 	if os.Geteuid() != 0 {
 		log.Error("This program requires root privileges to run. Please run with sudo.")
