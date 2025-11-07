@@ -57,7 +57,7 @@ func NewPrinter() *Printer {
 // PrintBanner renders the application banner.
 func (p *Printer) PrintBanner() {
 	lines := []string{
-		"============SERVER==============================================",
+		"============SERVER=======================================",
 		"      _______       ______  ",
 		"     / ____/ |     / / __ \\ ",
 		"    / / __ | | /| / / / / / ",
@@ -67,7 +67,7 @@ func (p *Printer) PrintBanner() {
 		"",
 		"Require: Debian (amd64 && arm64)",
 		"Author:  JacyL4",
-		"================================================================",
+		"=========================================================",
 	}
 
 	for _, line := range lines {
