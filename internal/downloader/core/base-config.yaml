@@ -4,14 +4,6 @@ timeout: 300s
 max_retries: 3
 
 components:
-  - name: "nginx"
-    display_name: "Nginx"
-    min_size: 2097152
-    executable: true
-    paths:
-      amd64: "nginx/nginx"
-      arm64: "nginx/nginx_arm64"
-
   - name: "tcsss"
     display_name: "TCSSS"
     min_size: 524288
@@ -20,42 +12,42 @@ components:
       amd64: "tcsss/tcsss"
       arm64: "tcsss/tcsss-arm64"
 
-  - name: "tcsss/templates/1-server.conf"
+  - name: "templates_tcsss/1-server.conf"
     display_name: "TCSSS Server Template"
     min_size: 512
     executable: false
     paths:
       all: "tcsss/templates/1-server.conf"
 
-  - name: "tcsss/templates/common.conf"
+  - name: "templates_tcsss/common.conf"
     display_name: "TCSSS Common Template"
     min_size: 4096
     executable: false
     paths:
       all: "tcsss/templates/common.conf"
 
-  - name: "tcsss/templates/limits_1gb.conf"
+  - name: "templates_tcsss/limits_1gb.conf"
     display_name: "TCSSS Limits 1GB Template"
     min_size: 4096
     executable: false
     paths:
       all: "tcsss/templates/limits_1gb.conf"
 
-  - name: "tcsss/templates/limits_4gb.conf"
+  - name: "templates_tcsss/limits_4gb.conf"
     display_name: "TCSSS Limits 4GB Template"
     min_size: 4096
     executable: false
     paths:
       all: "tcsss/templates/limits_4gb.conf"
 
-  - name: "tcsss/templates/limits_8gb.conf"
+  - name: "templates_tcsss/limits_8gb.conf"
     display_name: "TCSSS Limits 8GB Template"
     min_size: 4096
     executable: false
     paths:
       all: "tcsss/templates/limits_8gb.conf"
 
-  - name: "tcsss/templates/limits_12gb.conf"
+  - name: "templates_tcsss/limits_12gb.conf"
     display_name: "TCSSS Limits 12GB Template"
     min_size: 4096
     executable: false
@@ -69,6 +61,14 @@ components:
     paths:
       amd64: "vtrui/vtrui"
       arm64: "vtrui/vtrui_arm64"
+
+  - name: "nginx"
+    display_name: "Nginx"
+    min_size: 2097152
+    executable: true
+    paths:
+      amd64: "nginx/nginx"
+      arm64: "nginx/nginx_arm64"
 
   - name: "nginxConf.zip"
     display_name: "Nginx Configuration"

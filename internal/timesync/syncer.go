@@ -5,19 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	apperrors "GWD/internal/errors"
-	"GWD/internal/system"
 	"golang.org/x/sys/unix"
-)
-
-const (
-	// HwClockSynced indicates the hardware clock was successfully synchronized.
-	HwClockSynced = "synced"
 )
 
 var categoryToCode = map[apperrors.ErrorCategory]string{
@@ -28,16 +20,14 @@ var categoryToCode = map[apperrors.ErrorCategory]string{
 
 // Options controls how Sync obtains and applies network time.
 type Options struct {
-	Sources           []string
-	Timeout           time.Duration
-	SkipHardwareClock bool
+	Sources []string
+	Timeout time.Duration
 }
 
 // Result captures details about the synchronization attempt.
 type Result struct {
 	Source      string
 	NetworkTime time.Time
-	HwClockInfo string
 }
 
 // Sync fetches the current time from the configured HTTP(S) sources,
@@ -63,7 +53,6 @@ func Sync(ctx context.Context, opts *Options) (*Result, error) {
 		if opts.Timeout > 0 {
 			finalOpts.Timeout = opts.Timeout
 		}
-		finalOpts.SkipHardwareClock = opts.SkipHardwareClock
 	}
 
 	httpClient := &http.Client{
@@ -88,23 +77,10 @@ func Sync(ctx context.Context, opts *Options) (*Result, error) {
 			return nil, err
 		}
 
-		result := &Result{
+		return &Result{
 			Source:      source,
 			NetworkTime: networkTime,
-		}
-
-		if finalOpts.SkipHardwareClock {
-			result.HwClockInfo = "skipped by config"
-			return result, nil
-		}
-
-		info, err := syncHardwareClock()
-		if err != nil {
-			return nil, err
-		}
-		result.HwClockInfo = info
-
-		return result, nil
+		}, nil
 	}
 
 	return nil, newTimesyncError(apperrors.ErrCategoryNetwork, "Sync", "failed to fetch network time from sources", nil).
@@ -169,49 +145,6 @@ func setSystemClock(target time.Time) error {
 		return newTimesyncError(apperrors.ErrCategorySystem, "setSystemClock", "settimeofday failed", err)
 	}
 	return nil
-}
-
-func syncHardwareClock() (string, error) {
-	canSync, reason, err := canSyncHardwareClock()
-	if err != nil {
-		return "", err
-	}
-	if !canSync {
-		return reason, nil
-	}
-
-	cmd := exec.Command("hwclock", "--systohc")
-	if err := cmd.Run(); err != nil {
-		return "", newTimesyncError(apperrors.ErrCategorySystem, "syncHardwareClock", "hwclock --systohc failed", err)
-	}
-
-	return HwClockSynced, nil
-}
-
-func canSyncHardwareClock() (bool, string, error) {
-	if _, err := exec.LookPath("hwclock"); err != nil {
-		return false, "hwclock command not available", nil
-	}
-
-	if system.DetectVirtualization() == system.VirtTypeContainer {
-		return false, "hardware clock not accessible inside containers", nil
-	}
-
-	if !rtcDeviceExists() {
-		return false, "no RTC device detected", nil
-	}
-
-	return true, "", nil
-}
-
-func rtcDeviceExists() bool {
-	paths := []string{"/dev/rtc", "/dev/rtc0"}
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-	}
-	return false
 }
 
 func newTimesyncError(category apperrors.ErrorCategory, operation, message string, err error) *apperrors.AppError {

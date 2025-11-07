@@ -3,6 +3,7 @@ package deployer
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	apperrors "GWD/internal/errors"
@@ -114,6 +115,63 @@ func writeSystemdFile(path, content string) error {
 		return newDeployerError("deployer.writeSystemdFile", "failed to write file", err, apperrors.Metadata{
 			"path": path,
 		})
+	}
+
+	return nil
+}
+
+// systemctlRestart restarts a systemd service.
+func systemctlRestart(serviceName string) error {
+	cmd := exec.Command("systemctl", "restart", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return newDeployerError("deployer.systemctlRestart", "failed to restart service", err, apperrors.Metadata{
+			"service": serviceName,
+			"output":  string(output),
+		})
+	}
+	return nil
+}
+
+// systemctlEnable enables a systemd service.
+func systemctlEnable(serviceName string) error {
+	cmd := exec.Command("systemctl", "enable", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return newDeployerError("deployer.systemctlEnable", "failed to enable service", err, apperrors.Metadata{
+			"service": serviceName,
+			"output":  string(output),
+		})
+	}
+	return nil
+}
+
+// copyDirectory recursively copies all files from source directory to target directory.
+func copyDirectory(source, target string) error {
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return newDeployerError("deployer.copyDirectory", "failed to read source directory", err, apperrors.Metadata{
+			"source": source,
+		})
+	}
+
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return newDeployerError("deployer.copyDirectory", "failed to create target directory", err, apperrors.Metadata{
+			"target": target,
+		})
+	}
+
+	for _, entry := range entries {
+		sourcePath := filepath.Join(source, entry.Name())
+		targetPath := filepath.Join(target, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDirectory(sourcePath, targetPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(sourcePath, targetPath); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

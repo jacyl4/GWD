@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 
 	_ "embed"
@@ -93,6 +94,20 @@ func (d *Downloader) DownloadAll() error {
 		return apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "failed to prepare download targets", err).
 			WithModule("downloader.server").
 			WithOperation("DownloadAll")
+	}
+
+	templatesTcsssDir := filepath.Join(repoDir, "templates_tcsss")
+	if err := os.RemoveAll(templatesTcsssDir); err != nil {
+		return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to clear templates_tcsss directory", err).
+			WithModule("downloader.server").
+			WithOperation("DownloadAll").
+			WithField("dir", templatesTcsssDir)
+	}
+	if err := os.MkdirAll(templatesTcsssDir, 0o755); err != nil {
+		return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to recreate templates_tcsss directory", err).
+			WithModule("downloader.server").
+			WithOperation("DownloadAll").
+			WithField("dir", templatesTcsssDir)
 	}
 
 	if err := d.repo.DownloadWithContext(context.Background(), targets); err != nil {

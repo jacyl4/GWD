@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	configserver "GWD/internal/configurator/server"
 	"GWD/internal/deployer"
@@ -139,6 +140,8 @@ func (i *Installer) createWorkingDirectories() error {
 		{i.sysConfig.GetLogDir(), 0755, "Log directory"},
 		{"/var/www/ssl", 0755, "SSL certificate directory"},
 		{"/etc/nginx/conf.d", 0755, "Nginx configuration directory"},
+		{"/etc/tcsss", 0755, "TCSSS configuration directory"},
+		{filepath.Join(i.sysConfig.GetRepoDir(), "templates_tcsss"), 0755, "TCSSS templates directory"},
 	}
 
 	for _, dir := range directories {
@@ -164,7 +167,7 @@ func (i *Installer) syncSystemTime() error {
 		return i.wrapError(apperrors.ErrCategorySystem, "installer.syncSystemTime", "Time synchronization failed", err, nil)
 	}
 	if result != nil {
-		i.logger.Info("System time synchronized using %s (hwclock: %s)", result.Source, result.HwClockInfo)
+		i.logger.Info("System time synchronized using %s", result.Source)
 	}
 	return nil
 }
