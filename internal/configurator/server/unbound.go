@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 const unboundConfigDir = "/etc/unbound"
@@ -66,11 +66,21 @@ WantedBy=multi-user.target
 
 func EnsureUnboundConfig() error {
 	if err := os.MkdirAll(unboundConfigDir, 0755); err != nil {
-		return errors.Wrapf(err, "failed to create Unbound configuration directory %s", unboundConfigDir)
+		return newConfiguratorError(
+			"configurator.EnsureUnboundConfig",
+			"failed to create unbound configuration directory",
+			err,
+			apperrors.Metadata{"path": unboundConfigDir},
+		)
 	}
 
 	if err := os.WriteFile("/etc/unbound/unbound.conf", []byte(unboundConfigContent), 0644); err != nil {
-		return errors.Wrap(err, "failed to write Unbound configuration file /etc/unbound/unbound.conf")
+		return newConfiguratorError(
+			"configurator.EnsureUnboundConfig",
+			"failed to write unbound configuration file",
+			err,
+			apperrors.Metadata{"path": "/etc/unbound/unbound.conf"},
+		)
 	}
 
 	if err := writeUnboundServiceUnit(); err != nil {
@@ -83,17 +93,37 @@ func EnsureUnboundConfig() error {
 func writeUnboundServiceUnit() error {
 	servicePath := "/etc/systemd/system/unbound.service"
 	if err := os.WriteFile(servicePath, []byte(unboundServiceContent), 0644); err != nil {
-		return errors.Wrapf(err, "failed to write unbound service file %s", servicePath)
+		return newConfiguratorError(
+			"configurator.writeUnboundServiceUnit",
+			"failed to write unbound service file",
+			err,
+			apperrors.Metadata{"path": servicePath},
+		)
 	}
 
 	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		return errors.Wrap(err, "failed to daemon-reload for unbound service")
+		return newConfiguratorError(
+			"configurator.writeUnboundServiceUnit",
+			"failed to reload systemd daemon for unbound",
+			err,
+			apperrors.Metadata{"command": "systemctl daemon-reload"},
+		)
 	}
 	if err := exec.Command("systemctl", "enable", "unbound").Run(); err != nil {
-		return errors.Wrap(err, "failed to enable unbound service")
+		return newConfiguratorError(
+			"configurator.writeUnboundServiceUnit",
+			"failed to enable unbound service",
+			err,
+			apperrors.Metadata{"command": "systemctl enable unbound"},
+		)
 	}
 	if err := exec.Command("systemctl", "restart", "unbound").Run(); err != nil {
-		return errors.Wrap(err, "failed to restart unbound service")
+		return newConfiguratorError(
+			"configurator.writeUnboundServiceUnit",
+			"failed to restart unbound service",
+			err,
+			apperrors.Metadata{"command": "systemctl restart unbound"},
+		)
 	}
 	return nil
 }

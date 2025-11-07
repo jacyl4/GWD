@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	configserver "GWD/internal/configurator/server"
 	"GWD/internal/deployer"
@@ -24,6 +26,8 @@ type Installer struct {
 	console   *ui.Console
 	logger    logger.Logger
 
+	installConfig *InstallConfig
+
 	validator  *EnvironmentValidator
 	pkgManager *dpkg.Manager
 	repository *serverdownloader.Downloader
@@ -32,6 +36,8 @@ type Installer struct {
 	vtrui      deployer.Component
 	tcsss      deployer.Component
 }
+
+const defaultWebSocketPath = "/ws"
 
 // NewInstaller creates a new Installer instance. Package manager is constructed here
 // to keep server wiring minimal.
@@ -59,6 +65,8 @@ func NewInstaller(
 // This is the core installation function, coordinating all modules to complete system deployment
 func (i *Installer) InstallGWD(cfg *InstallConfig) error {
 	ctx := context.Background()
+	i.installConfig = cfg
+	defer func() { i.installConfig = nil }()
 
 	setupSteps := []InstallStep{
 		{
@@ -111,10 +119,11 @@ func (i *Installer) InstallGWD(cfg *InstallConfig) error {
 		{"Configure resolvconf", "installer.configureResolvconf", apperrors.ErrCategorySystem, configserver.EnsureResolvconfConfig},
 		{"Synchronize system time", "installer.syncTime", apperrors.ErrCategorySystem, i.syncSystemTime},
 		{"Download repository files", "installer.downloadRepository", apperrors.ErrCategoryDependency, i.repository.DownloadAll},
+		{"Generate SSL certificate", "installer.generateSSLCertificate", apperrors.ErrCategoryDeployment, func() error { return i.generateSSLCertificate(cfg) }},
 		{"Install tcsss", "installer.installTcsss", apperrors.ErrCategoryDeployment, i.installTcsss},
 		{"Install DoH server", "installer.installDoH", apperrors.ErrCategoryDeployment, i.installDOHServer},
-		{"Install Nginx", "installer.installNginx", apperrors.ErrCategoryDeployment, i.installNginx},
 		{"Install vtrui", "installer.installVtrui", apperrors.ErrCategoryDeployment, i.installVtrui},
+		{"Install Nginx", "installer.installNginx", apperrors.ErrCategoryDeployment, i.installNginx},
 		{"Start system services", "installer.startSystemServices", apperrors.ErrCategoryDeployment, i.startSystemServices},
 		{"Configure SSL certificate", "installer.configureTLS", apperrors.ErrCategoryDeployment, func() error { return i.configureTLS(cfg) }},
 		{"Configure Nginx Web", "installer.configureNginxWeb", apperrors.ErrCategoryDeployment, i.configureNginxWeb},
@@ -223,6 +232,54 @@ func (i *Installer) installVtrui() error {
 	if err := i.vtrui.Validate(); err != nil {
 		return i.wrapError(apperrors.ErrCategoryDeployment, "installer.installVtrui", "vtrui validation failed", err, nil)
 	}
+	return nil
+}
+
+func (i *Installer) generateSSLCertificate(cfg *InstallConfig) error {
+	if cfg == nil || cfg.TLS == nil {
+		return i.wrapError(
+			apperrors.ErrCategoryConfig,
+			"installer.generateSSLCertificate",
+			"TLS configuration is required for certificate generation",
+			nil,
+			nil,
+		)
+	}
+
+	domain := strings.TrimSpace(cfg.Domain)
+	if domain == "" {
+		return i.wrapError(
+			apperrors.ErrCategoryValidation,
+			"installer.generateSSLCertificate",
+			"domain is required for certificate generation",
+			errors.New("empty domain"),
+			nil,
+		)
+	}
+
+	input := domain
+	if cfg.Port != 443 {
+		input = fmt.Sprintf("%s:%d", domain, cfg.Port)
+	}
+
+	opts := configserver.ACMECertificateOptions{Domain: input}
+
+	if cfg.TLS.Provider == TLSProviderCloudflare {
+		opts.CloudflareEmail = strings.TrimSpace(cfg.TLS.Email)
+		opts.CloudflareKey = strings.TrimSpace(cfg.TLS.APIKey)
+	}
+
+	i.logger.Info("Generating SSL certificate for %s...", domain)
+	if err := configserver.EnsureACMECertificate(opts); err != nil {
+		return i.wrapError(
+			apperrors.ErrCategoryDeployment,
+			"installer.generateSSLCertificate",
+			"failed to generate SSL certificate",
+			err,
+			apperrors.Metadata{"domain": domain},
+		)
+	}
+
 	return nil
 }
 
@@ -378,14 +435,41 @@ func (i *Installer) configureTLS(cfg *InstallConfig) error {
 
 // configureNginxWeb configures Nginx Web service
 func (i *Installer) configureNginxWeb() error {
-	i.logger.Info("Configuring Nginx Web service...")
-	return i.wrapError(
-		apperrors.ErrCategoryDeployment,
-		"installer.configureNginxWeb",
-		"Nginx web configuration not yet implemented",
-		nil,
-		nil,
-	)
+	cfg := i.installConfig
+	if cfg == nil {
+		return i.wrapError(
+			apperrors.ErrCategoryConfig,
+			"installer.configureNginxWeb",
+			"install configuration not available",
+			nil,
+			nil,
+		)
+	}
+
+	domain := strings.TrimSpace(cfg.Domain)
+	i.logger.Info("Configuring Nginx web service for %s...", domain)
+
+	options := configserver.NginxOptions{
+		Port:   cfg.Port,
+		Domain: domain,
+		WSPath: defaultWebSocketPath,
+	}
+
+	if err := configserver.EnsureNginxConfig(options); err != nil {
+		return i.wrapError(
+			apperrors.ErrCategoryDeployment,
+			"installer.configureNginxWeb",
+			"failed to configure Nginx web service",
+			err,
+			apperrors.Metadata{
+				"domain":  domain,
+				"port":    cfg.Port,
+				"ws_path": options.WSPath,
+			},
+		)
+	}
+
+	return nil
 }
 
 // postInstallConfiguration post-installation configuration

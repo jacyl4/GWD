@@ -1,0 +1,5 @@
+server {
+  listen 80 reuseport;
+  server_name {{.Domain}};
+  return 301 https://$server_name$request_uri;
+}

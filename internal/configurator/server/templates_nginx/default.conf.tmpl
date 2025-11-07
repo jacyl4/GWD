@@ -1,0 +1,69 @@
+server {
+  listen {{.Port}} default quic reuseport;
+  listen {{.Port}} default ssl fastopen=500 reuseport;
+  http2 on;
+  server_name {{.Domain}};
+  root /var/www/html;
+  index index.php index.html index.htm;
+  error_page 497 https://$host:{{.Port}}$request_uri;
+
+  add_header Alt-Svc 'h3=":443";ma=86400,quic=":443"; ma=2592000; v="46,43"';
+
+  include /etc/nginx/conf.d/.HSTS;
+
+  add_header Referrer-Policy                    "origin"            always;
+  add_header Pragma                             "no-cache"          always;
+
+  include /etc/nginx/conf.d/.ssl_certs;
+
+  location = /40x.html {
+    internal;
+  }
+
+  location = /50x.html {
+    internal;
+  }
+
+  location /dq {
+    proxy_pass                  http://127.0.0.1:9853/dq;
+    proxy_http_version          1.1;
+    proxy_set_header            Host $host;
+    proxy_set_header            X-Real-IP $remote_addr;
+    proxy_connect_timeout       600;
+    proxy_read_timeout          600;
+    proxy_send_timeout          600;
+    chunked_transfer_encoding   off;
+    proxy_redirect              off;
+    proxy_store                 off;
+    proxy_cache                 off;
+    proxy_buffering             off;
+    proxy_buffer_size           4k;
+    proxy_busy_buffers_size     16k;
+    proxy_buffers               4 16k;
+    add_header Cache-Control no-cache;
+  }
+
+  location {{.WSPath}} {
+    if ($http_upgrade != "websocket") { return 404; }
+    proxy_pass                  http://127.0.0.1:9890;
+    proxy_http_version          1.1;
+    proxy_set_header            Host $host;
+    proxy_set_header            Upgrade "websocket";
+    proxy_set_header            Connection "upgrade";
+    proxy_set_header            X-Real-IP $remote_addr;
+    proxy_set_header            X-Real-PORT $remote_port;
+    proxy_set_header            X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_connect_timeout       600;
+    proxy_read_timeout          600;
+    proxy_send_timeout          600;
+    chunked_transfer_encoding   off;
+    proxy_redirect              off;
+    proxy_store                 off;
+    proxy_cache                 off;
+    proxy_buffering             off;
+    proxy_buffer_size           4k;
+    proxy_busy_buffers_size     16k;
+    proxy_buffers               4 16k;
+    add_header Cache-Control no-cache;
+  }
+}

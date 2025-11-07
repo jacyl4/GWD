@@ -32,22 +32,18 @@ type ACMECertificateOptions struct {
 
 // EnsureACMECertificate installs acme.sh if needed and issues a certificate into /var/www/ssl.
 func EnsureACMECertificate(opts ACMECertificateOptions) error {
-	domainInput := strings.TrimSpace(opts.Domain)
-	if domainInput == "" {
-		return newConfiguratorError("configurator.EnsureACMECertificate", "domain is required", errors.New("empty domain"), nil)
-	}
-
-	host, hasPort, err := splitDomainAndPort(domainInput)
+	host, hasPort, err := validateAndParseOptions(opts)
 	if err != nil {
-		return newConfiguratorError("configurator.EnsureACMECertificate", "invalid domain input", err, apperrors.Metadata{
-			"input": domainInput,
-		})
+		return err
 	}
 
-	if err := os.MkdirAll(certificatesOutputDir, 0755); err != nil {
-		return newConfiguratorError("configurator.EnsureACMECertificate", "failed to prepare certificate directory", err, apperrors.Metadata{
-			"path": certificatesOutputDir,
-		})
+	if err := os.MkdirAll(certificatesOutputDir, 0o755); err != nil {
+		return newConfiguratorError(
+			"configurator.EnsureACMECertificate",
+			"failed to prepare certificate directory",
+			err,
+			apperrors.Metadata{"path": certificatesOutputDir},
+		)
 	}
 
 	if err := ensureAcmeInstalled(); err != nil {
@@ -55,16 +51,13 @@ func EnsureACMECertificate(opts ACMECertificateOptions) error {
 	}
 
 	if hasPort {
-		if strings.TrimSpace(opts.CloudflareEmail) == "" || strings.TrimSpace(opts.CloudflareKey) == "" {
-			return newConfiguratorError("configurator.EnsureACMECertificate", "cloudflare email and key required for DNS issuance", errors.New("missing cloudflare credentials"), apperrors.Metadata{
-				"domain": host,
-			})
-		}
-		if err := issueCertificateDNS(host, opts.CloudflareEmail, opts.CloudflareKey); err != nil {
+		email := strings.TrimSpace(opts.CloudflareEmail)
+		key := strings.TrimSpace(opts.CloudflareKey)
+		if err := issueCertificateDNS(host, email, key); err != nil {
 			return err
 		}
 	} else {
-		if err := issueCertificateStandalone(host); err != nil {
+		if err := issueCertificateWithPort80(host); err != nil {
 			return err
 		}
 	}
@@ -76,158 +69,364 @@ func EnsureACMECertificate(opts ACMECertificateOptions) error {
 	return nil
 }
 
-func ensureAcmeInstalled() error {
+type acmeRunner struct {
+	acmePath string
+	homeDir  string
+}
+
+func newAcmeRunner() (*acmeRunner, error) {
 	acmePath := filepath.Join(acmeHomeDir, acmeScriptName)
-	if _, err := os.Stat(acmePath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "failed to detect acme.sh", err, apperrors.Metadata{
-			"path": acmePath,
-		})
+	if _, err := os.Stat(acmePath); err != nil {
+		return nil, newConfiguratorError(
+			"configurator.newAcmeRunner",
+			"acme.sh executable not found",
+			err,
+			apperrors.Metadata{"path": acmePath},
+		)
 	}
 
-	tmpFile, err := os.CreateTemp("", "get-acme-*.sh")
-	if err != nil {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "failed to create temp file", err, nil)
+	return &acmeRunner{
+		acmePath: acmePath,
+		homeDir:  acmeHomeDir,
+	}, nil
+}
+
+func baseAcmeEnv(additional ...string) []string {
+	env := []string{
+		"HOME=" + certificatesOutputDir,
+		"LE_WORKING_DIR=" + acmeHomeDir,
+		"ACME_HOME=" + acmeHomeDir,
 	}
-	defer os.Remove(tmpFile.Name())
+	env = append(env, additional...)
+	return append(os.Environ(), env...)
+}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(acmeInstallerURL)
-	if err != nil {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "failed to download acme installer", err, nil)
-	}
-	defer resp.Body.Close()
+func (r *acmeRunner) buildEnv(additional ...string) []string {
+	return baseAcmeEnv(additional...)
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "unexpected response when downloading acme installer", fmt.Errorf("status %d", resp.StatusCode), apperrors.Metadata{
-			"status": resp.StatusCode,
-		})
-	}
-
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "failed to save acme installer", err, nil)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "failed to close installer temp file", err, nil)
-	}
-
-	if err := os.Chmod(tmpFile.Name(), 0700); err != nil {
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "failed to chmod acme installer", err, apperrors.Metadata{
-			"path": tmpFile.Name(),
-		})
-	}
-
-	env := append(os.Environ(),
-		"HOME="+certificatesOutputDir,
-		"LE_WORKING_DIR="+acmeHomeDir,
-		"ACME_HOME="+acmeHomeDir,
-	)
-
-	cmd := exec.Command("sh", tmpFile.Name(), "--install", "--nocron", "--noprofile")
+func (r *acmeRunner) runCommand(operation string, args []string, env []string, metadata apperrors.Metadata) error {
+	cmd := exec.Command(r.acmePath, args...)
 	cmd.Env = env
+
 	var stderr bytes.Buffer
 	cmd.Stdout = nil
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		metadata := apperrors.Metadata{
-			"installer": tmpFile.Name(),
+		if metadata == nil {
+			metadata = apperrors.Metadata{}
 		}
+		metadata["args"] = strings.Join(args, " ")
 		if s := strings.TrimSpace(stderr.String()); s != "" {
 			metadata["stderr"] = s
 		}
-		return newConfiguratorError("configurator.EnsureAcmeInstalled", "acme installer execution failed", err, metadata)
+		return newConfiguratorError(
+			"configurator.acmeRunner."+operation,
+			"acme.sh command failed",
+			err,
+			metadata,
+		)
+	}
+
+	return nil
+}
+
+type port80Handler struct {
+	stoppedServices []string
+}
+
+func newPort80Handler() *port80Handler {
+	return &port80Handler{stoppedServices: make([]string, 0)}
+}
+
+func (h *port80Handler) preparePort80() error {
+	candidates := []string{"nginx.service", "nginx", "apache2.service", "apache2"}
+
+	for _, svc := range candidates {
+		if h.isServiceRunning(svc) {
+			if err := h.stopService(svc); err != nil {
+				return err
+			}
+			h.stoppedServices = append(h.stoppedServices, svc)
+		}
+	}
+
+	return nil
+}
+
+func (h *port80Handler) restoreServices() error {
+	var firstErr error
+	for i := len(h.stoppedServices) - 1; i >= 0; i-- {
+		svc := h.stoppedServices[i]
+		if err := h.startService(svc); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (h *port80Handler) isServiceRunning(serviceName string) bool {
+	cmd := exec.Command("systemctl", "is-active", "--quiet", serviceName)
+	return cmd.Run() == nil
+}
+
+func (h *port80Handler) stopService(serviceName string) error {
+	cmd := exec.Command("systemctl", "stop", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return newConfiguratorError(
+			"configurator.port80Handler.stopService",
+			"failed to stop service for port 80 access",
+			err,
+			apperrors.Metadata{
+				"service": serviceName,
+				"output":  strings.TrimSpace(string(output)),
+			},
+		)
+	}
+	return nil
+}
+
+func (h *port80Handler) startService(serviceName string) error {
+	cmd := exec.Command("systemctl", "start", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return newConfiguratorError(
+			"configurator.port80Handler.startService",
+			"failed to restart service after certificate issuance",
+			err,
+			apperrors.Metadata{
+				"service": serviceName,
+				"output":  strings.TrimSpace(string(output)),
+			},
+		)
+	}
+	return nil
+}
+
+func validateAndParseOptions(opts ACMECertificateOptions) (string, bool, error) {
+	domainInput := strings.TrimSpace(opts.Domain)
+	if domainInput == "" {
+		return "", false, newConfiguratorError(
+			"configurator.validateAndParseOptions",
+			"domain is required",
+			errors.New("empty domain"),
+			nil,
+		)
+	}
+
+	host, hasPort, err := splitDomainAndPort(domainInput)
+	if err != nil {
+		return "", false, newConfiguratorError(
+			"configurator.validateAndParseOptions",
+			"invalid domain input",
+			err,
+			apperrors.Metadata{"input": domainInput},
+		)
+	}
+
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", false, newConfiguratorError(
+			"configurator.validateAndParseOptions",
+			"domain is required",
+			errors.New("empty host"),
+			nil,
+		)
+	}
+
+	if hasPort {
+		email := strings.TrimSpace(opts.CloudflareEmail)
+		key := strings.TrimSpace(opts.CloudflareKey)
+		if email == "" || key == "" {
+			return "", false, newConfiguratorError(
+				"configurator.validateAndParseOptions",
+				"cloudflare email and key required for DNS issuance",
+				errors.New("missing cloudflare credentials"),
+				apperrors.Metadata{"domain": host},
+			)
+		}
+	}
+
+	return host, hasPort, nil
+}
+
+func ensureAcmeInstalled() error {
+	acmePath := filepath.Join(acmeHomeDir, acmeScriptName)
+	if _, err := os.Stat(acmePath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return newConfiguratorError(
+			"configurator.ensureAcmeInstalled",
+			"failed to detect acme.sh",
+			err,
+			apperrors.Metadata{"path": acmePath},
+		)
+	}
+
+	installerPath, err := downloadAcmeInstaller()
+	if err != nil {
+		return err
+	}
+	defer os.Remove(installerPath)
+
+	if err := installAcmeScript(installerPath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func downloadAcmeInstaller() (string, error) {
+	tmpFile, err := os.CreateTemp("", "get-acme-*.sh")
+	if err != nil {
+		return "", newConfiguratorError(
+			"configurator.downloadAcmeInstaller",
+			"failed to create temp file",
+			err,
+			nil,
+		)
+	}
+
+	path := tmpFile.Name()
+	success := false
+	defer func() {
+		if !success {
+			tmpFile.Close()
+			os.Remove(path)
+		}
+	}()
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(acmeInstallerURL)
+	if err != nil {
+		return "", newConfiguratorError(
+			"configurator.downloadAcmeInstaller",
+			"failed to download acme installer",
+			err,
+			nil,
+		)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", newConfiguratorError(
+			"configurator.downloadAcmeInstaller",
+			"unexpected response when downloading acme installer",
+			fmt.Errorf("status %d", resp.StatusCode),
+			apperrors.Metadata{"status": resp.StatusCode},
+		)
+	}
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return "", newConfiguratorError(
+			"configurator.downloadAcmeInstaller",
+			"failed to save acme installer",
+			err,
+			nil,
+		)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return "", newConfiguratorError(
+			"configurator.downloadAcmeInstaller",
+			"failed to close installer temp file",
+			err,
+			nil,
+		)
+	}
+
+	if err := os.Chmod(path, 0o700); err != nil {
+		return "", newConfiguratorError(
+			"configurator.downloadAcmeInstaller",
+			"failed to chmod acme installer",
+			err,
+			apperrors.Metadata{"path": path},
+		)
+	}
+
+	success = true
+	return path, nil
+}
+
+func installAcmeScript(installerPath string) error {
+	if err := os.MkdirAll(acmeHomeDir, 0o755); err != nil {
+		return newConfiguratorError(
+			"configurator.installAcmeScript",
+			"failed to prepare acme home",
+			err,
+			apperrors.Metadata{"path": acmeHomeDir},
+		)
+	}
+
+	cmd := exec.Command("sh", installerPath, "--install", "--nocron", "--noprofile")
+	cmd.Env = baseAcmeEnv()
+
+	var stderr bytes.Buffer
+	cmd.Stdout = nil
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		metadata := apperrors.Metadata{"installer": installerPath}
+		if s := strings.TrimSpace(stderr.String()); s != "" {
+			metadata["stderr"] = s
+		}
+		return newConfiguratorError(
+			"configurator.installAcmeScript",
+			"acme installer execution failed",
+			err,
+			metadata,
+		)
 	}
 
 	return nil
 }
 
 func issueCertificateStandalone(domain string) error {
-	acmePath := filepath.Join(acmeHomeDir, acmeScriptName)
-	if _, err := os.Stat(acmePath); err != nil {
-		return newConfiguratorError("configurator.IssueACMECertificate", "acme.sh executable not found", err, apperrors.Metadata{
-			"path": acmePath,
-		})
+	runner, err := newAcmeRunner()
+	if err != nil {
+		return err
 	}
-	env := append(os.Environ(),
-		"HOME="+certificatesOutputDir,
-		"LE_WORKING_DIR="+acmeHomeDir,
-		"ACME_HOME="+acmeHomeDir,
-	)
 
-	cmd := exec.Command(acmePath, "--issue", "--standalone", "--httpport", "80", "-d", domain)
-	cmd.Env = env
-	var stderr bytes.Buffer
-	cmd.Stdout = nil
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		metadata := apperrors.Metadata{
+	args := []string{"--issue", "--standalone", "--httpport", "80", "-d", domain}
+	return runner.runCommand(
+		"issueCertificateStandalone",
+		args,
+		runner.buildEnv(),
+		apperrors.Metadata{
 			"domain": domain,
 			"mode":   "standalone",
-		}
-		if s := strings.TrimSpace(stderr.String()); s != "" {
-			metadata["stderr"] = s
-		}
-		return newConfiguratorError("configurator.IssueACMECertificate", "acme standalone issuance failed", err, metadata)
-	}
-
-	return nil
+		},
+	)
 }
 
 func issueCertificateDNS(domain, email, key string) error {
-	acmePath := filepath.Join(acmeHomeDir, acmeScriptName)
-	if _, err := os.Stat(acmePath); err != nil {
-		return newConfiguratorError("configurator.IssueACMECertificate", "acme.sh executable not found", err, apperrors.Metadata{
-			"path": acmePath,
-		})
+	runner, err := newAcmeRunner()
+	if err != nil {
+		return err
 	}
-	env := append(os.Environ(),
-		"HOME="+certificatesOutputDir,
-		"LE_WORKING_DIR="+acmeHomeDir,
-		"ACME_HOME="+acmeHomeDir,
-		"CF_Email="+strings.TrimSpace(email),
-		"CF_Key="+strings.TrimSpace(key),
-	)
 
-	cmd := exec.Command(acmePath, "--issue", "--dns", "dns_cf", "-d", domain)
-	cmd.Env = env
-	var stderr bytes.Buffer
-	cmd.Stdout = nil
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		metadata := apperrors.Metadata{
+	email = strings.TrimSpace(email)
+	key = strings.TrimSpace(key)
+	args := []string{"--issue", "--dns", "dns_cf", "-d", domain}
+	return runner.runCommand(
+		"issueCertificateDNS",
+		args,
+		runner.buildEnv("CF_Email="+email, "CF_Key="+key),
+		apperrors.Metadata{
 			"domain": domain,
 			"mode":   "dns_cf",
-			"email":  strings.TrimSpace(email),
-		}
-		if s := strings.TrimSpace(stderr.String()); s != "" {
-			metadata["stderr"] = s
-		}
-		return newConfiguratorError("configurator.IssueACMECertificate", "acme dns issuance failed", err, metadata)
-	}
-
-	return nil
+			"email":  email,
+		},
+	)
 }
 
 func installCertificateArtifacts(domain string) error {
-	acmePath := filepath.Join(acmeHomeDir, acmeScriptName)
-	if _, err := os.Stat(acmePath); err != nil {
-		return newConfiguratorError("configurator.InstallACMECertificate", "acme.sh executable not found", err, apperrors.Metadata{
-			"path": acmePath,
-		})
+	runner, err := newAcmeRunner()
+	if err != nil {
+		return err
 	}
-	env := append(os.Environ(),
-		"HOME="+certificatesOutputDir,
-		"LE_WORKING_DIR="+acmeHomeDir,
-		"ACME_HOME="+acmeHomeDir,
-	)
 
 	paths := certificatePaths(domain)
-
 	args := []string{
 		"--install-cert",
 		"-d", domain,
@@ -237,25 +436,29 @@ func installCertificateArtifacts(domain string) error {
 		"--ca-file", paths.intermediate,
 	}
 
-	cmd := exec.Command(acmePath, args...)
-	cmd.Env = env
-	var stderr bytes.Buffer
-	cmd.Stdout = nil
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		metadata := apperrors.Metadata{
+	return runner.runCommand(
+		"installCertificateArtifacts",
+		args,
+		runner.buildEnv(),
+		apperrors.Metadata{
 			"domain": domain,
 			"key":    paths.key,
 			"cert":   paths.cert,
-		}
-		if s := strings.TrimSpace(stderr.String()); s != "" {
-			metadata["stderr"] = s
-		}
-		return newConfiguratorError("configurator.InstallACMECertificate", "failed to install acme certificates", err, metadata)
+		},
+	)
+}
+
+func issueCertificateWithPort80(domain string) error {
+	handler := newPort80Handler()
+	if err := handler.preparePort80(); err != nil {
+		return err
 	}
 
-	return nil
+	defer func() {
+		_ = handler.restoreServices()
+	}()
+
+	return issueCertificateStandalone(domain)
 }
 
 type certificatePathSet struct {

@@ -1,0 +1,18 @@
+ssl_certificate {{.CertFile}};
+ssl_certificate_key {{.KeyFile}};
+ssl_dhparam {{.DHParamFile}};
+ssl_protocols TLSv1.3;
+ssl_prefer_server_ciphers on;
+ssl_ecdh_curve X25519:secp384r1;
+ssl_conf_command Options KTLS;
+ssl_conf_command Ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256;
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+ssl_session_tickets off;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 6h;
+ssl_buffer_size 4k;
+
+ssl_stapling off;
+ssl_stapling_verify off;
+ssl_early_data on;
+proxy_set_header Early-Data $ssl_early_data;

@@ -5,8 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 const (
@@ -30,23 +31,28 @@ const (
 func EnsureResolvconfConfig() error {
 	// 1) Ensure resolvconf base files exist (empty)
 	if err := ensureEmptyFile(resolvconfOriginal); err != nil {
-		return errors.Wrapf(err, "prepare %s", resolvconfOriginal)
+		return err
 	}
 	if err := ensureEmptyFile(resolvconfBase); err != nil {
-		return errors.Wrapf(err, "prepare %s", resolvconfBase)
+		return err
 	}
 	if err := ensureEmptyFile(resolvconfTail); err != nil {
-		return errors.Wrapf(err, "prepare %s", resolvconfTail)
+		return err
 	}
 
 	// 2) Write head with local nameserver
 	if err := os.WriteFile(resolvconfHeadFile, []byte(resolvconfHeadContent), 0644); err != nil {
-		return errors.Wrapf(err, "write %s", resolvconfHeadFile)
+		return newConfiguratorError(
+			"configurator.EnsureResolvconfConfig",
+			"failed to write resolvconf head file",
+			err,
+			apperrors.Metadata{"path": resolvconfHeadFile},
+		)
 	}
 
 	// 3) Remove "dns-nameservers" lines from /etc/network/interfaces (avoid ifupdown injecting DNS)
 	if err := stripDnsNameservers(systemInterfacesFile); err != nil {
-		return errors.Wrapf(err, "update %s", systemInterfacesFile)
+		return err
 	}
 
 	// 4) Try resolvconf update; if it fails, fallback to writing /etc/resolv.conf directly
@@ -56,7 +62,17 @@ func EnsureResolvconfConfig() error {
 		// Fallback: make /etc/resolv.conf a plain file with local nameserver
 		_ = os.RemoveAll(etcResolvConf) // remove broken symlink if present
 		if writeErr := os.WriteFile(etcResolvConf, []byte(resolvconfHeadContent), 0644); writeErr != nil {
-			return errors.Wrapf(err, "resolvconf -u failed (%s) and fallback write %s failed", string(out), etcResolvConf)
+			return newConfiguratorError(
+				"configurator.EnsureResolvconfConfig",
+				"resolvconf update failed and fallback write unsuccessful",
+				writeErr,
+				apperrors.Metadata{
+					"command":          "resolvconf -u",
+					"resolvconf_error": err.Error(),
+					"output":           strings.TrimSpace(string(out)),
+					"path":             etcResolvConf,
+				},
+			)
 		}
 		return nil
 	}
@@ -66,11 +82,21 @@ func EnsureResolvconfConfig() error {
 
 func ensureEmptyFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return errors.Wrapf(err, "mkdir for %s", path)
+		return newConfiguratorError(
+			"configurator.ensureEmptyFile",
+			"failed to create directory for resolvconf file",
+			err,
+			apperrors.Metadata{"path": path},
+		)
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
-		return errors.Wrapf(err, "truncate %s", path)
+		return newConfiguratorError(
+			"configurator.ensureEmptyFile",
+			"failed to truncate resolvconf file",
+			err,
+			apperrors.Metadata{"path": path},
+		)
 	}
 	return f.Close()
 }
@@ -83,7 +109,12 @@ func stripDnsNameservers(path string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return errors.Wrapf(err, "read %s", path)
+		return newConfiguratorError(
+			"configurator.stripDnsNameservers",
+			"failed to read interfaces file",
+			err,
+			apperrors.Metadata{"path": path},
+		)
 	}
 	lines := bytes.Split(data, []byte{'\n'})
 	hasTrail := len(data) > 0 && data[len(data)-1] == '\n'
@@ -109,5 +140,13 @@ func stripDnsNameservers(path string) error {
 	if hasTrail && (len(dst) == 0 || dst[len(dst)-1] != '\n') {
 		dst = append(dst, '\n')
 	}
-	return os.WriteFile(path, dst, 0644)
+	if err := os.WriteFile(path, dst, 0644); err != nil {
+		return newConfiguratorError(
+			"configurator.stripDnsNameservers",
+			"failed to update interfaces file",
+			err,
+			apperrors.Metadata{"path": path},
+		)
+	}
+	return nil
 }

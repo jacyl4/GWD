@@ -3,8 +3,9 @@ package server
 import (
 	"os"
 	"os/exec"
+	"strings"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
 const rngToolsDefaultPath = "/etc/default/rng-tools-debian"
@@ -60,7 +61,12 @@ var (
 // EnsureRngToolsConfigured writes rng-tools default configuration and restarts/enables the service
 func EnsureRngToolsConfigured() error {
 	if err := os.WriteFile(rngToolsDefaultPath, []byte(rngToolsDefaultContent), 0644); err != nil {
-		return errors.Wrapf(err, "failed to write rng-tools defaults %s", rngToolsDefaultPath)
+		return newConfiguratorError(
+			"configurator.EnsureRngToolsConfigured",
+			"failed to write rng-tools defaults",
+			err,
+			apperrors.Metadata{"path": rngToolsDefaultPath},
+		)
 	}
 
 	if err := restartService(rngToolsServiceCandidates...); err != nil {
@@ -75,7 +81,12 @@ func EnsureRngToolsConfigured() error {
 // EnsureChronyConfigured writes chrony configuration and restarts/enables the service
 func EnsureChronyConfigured() error {
 	if err := os.WriteFile(chronyConfPath, []byte(chronyConfContent), 0644); err != nil {
-		return errors.Wrapf(err, "failed to write chrony configuration %s", chronyConfPath)
+		return newConfiguratorError(
+			"configurator.EnsureChronyConfigured",
+			"failed to write chrony configuration",
+			err,
+			apperrors.Metadata{"path": chronyConfPath},
+		)
 	}
 
 	if err := restartService(chronyServiceCandidates...); err != nil {
@@ -101,12 +112,26 @@ func EnsureEntropyAndTimeConfigured() error {
 // EnsureTimezoneShanghai sets system timezone to Asia/Shanghai via timedatectl
 func EnsureTimezoneShanghai() error {
 	if err := exec.Command("timedatectl", "set-timezone", "Asia/Shanghai").Run(); err != nil {
-		return errors.Wrap(err, "failed to set timezone to Asia/Shanghai")
+		return newConfiguratorError(
+			"configurator.EnsureTimezoneShanghai",
+			"failed to set timezone to Asia/Shanghai",
+			err,
+			apperrors.Metadata{"command": "timedatectl set-timezone Asia/Shanghai"},
+		)
 	}
 	return nil
 }
 
 func restartService(candidates ...string) error {
+	if len(candidates) == 0 {
+		return newConfiguratorError(
+			"configurator.restartService",
+			"no service candidates provided for restart",
+			nil,
+			nil,
+		)
+	}
+
 	var lastErr error
 	for _, name := range candidates {
 		if err := exec.Command("systemctl", "restart", name).Run(); err == nil {
@@ -115,13 +140,25 @@ func restartService(candidates ...string) error {
 			lastErr = err
 		}
 	}
-	if lastErr == nil {
-		return errors.New("no service candidates provided for restart")
-	}
-	return errors.Wrapf(lastErr, "failed to restart services %v", candidates)
+
+	return newConfiguratorError(
+		"configurator.restartService",
+		"failed to restart service candidates",
+		lastErr,
+		apperrors.Metadata{"services": strings.Join(candidates, ",")},
+	)
 }
 
 func enableService(candidates ...string) error {
+	if len(candidates) == 0 {
+		return newConfiguratorError(
+			"configurator.enableService",
+			"no service candidates provided for enable",
+			nil,
+			nil,
+		)
+	}
+
 	var lastErr error
 	for _, name := range candidates {
 		if err := exec.Command("systemctl", "enable", name).Run(); err == nil {
@@ -130,8 +167,11 @@ func enableService(candidates ...string) error {
 			lastErr = err
 		}
 	}
-	if lastErr == nil {
-		return errors.New("no service candidates provided for enable")
-	}
-	return errors.Wrapf(lastErr, "failed to enable services %v", candidates)
+
+	return newConfiguratorError(
+		"configurator.enableService",
+		"failed to enable service candidates",
+		lastErr,
+		apperrors.Metadata{"services": strings.Join(candidates, ",")},
+	)
 }

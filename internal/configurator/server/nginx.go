@@ -1,210 +1,205 @@
 package server
 
 import (
-	"archive/zip"
+	"bytes"
+	_ "embed"
 	"os"
 	"path/filepath"
+	"strings"
+	"text/template"
 
-	"github.com/pkg/errors"
+	apperrors "GWD/internal/errors"
 )
 
-const nginxConfZipPath = "/opt/GWD/.repo/nginxConf.zip"
-const nginxConfigDir = "/etc/nginx"
-const nginxTempDir = "/tmp/nginx-config-tmp"
+const (
+	nginxConfigDir  = "/etc/nginx"
+	nginxConfDDir   = "/etc/nginx/conf.d"
+	nginxStreamDir  = "/etc/nginx/stream.d"
+	sslDirectory    = "/var/www/ssl"
+	defaultCertPath = "/var/www/ssl/de_GWD.cer"
+	defaultKeyPath  = "/var/www/ssl/de_GWD.key"
+	defaultDHParam  = "/var/www/ssl/dhparam.pem"
+	defaultWSPath   = "/ws"
+)
 
-// createNginxDirectories creates all necessary directories for nginx operation
-func createNginxDirectories() error {
-	directories := []struct {
-		path  string
-		perms os.FileMode
+//go:embed templates_nginx/redirect.conf.tmpl
+var nginxRedirectTemplate string
+
+//go:embed templates_nginx/hsts.conf
+var nginxHSTSTemplate string
+
+//go:embed templates_nginx/ssl_certs.conf.tmpl
+var nginxSSLCertsTemplate string
+
+//go:embed templates_nginx/default.conf.tmpl
+var nginxDefaultTemplate string
+
+// NginxOptions contains configuration parameters for Nginx.
+type NginxOptions struct {
+	Port        int
+	Domain      string
+	WSPath      string
+	CertFile    string
+	KeyFile     string
+	DHParamFile string
+}
+
+// EnsureNginxConfig generates and writes Nginx configuration files.
+func EnsureNginxConfig(opts NginxOptions) error {
+	if err := validateNginxOptions(&opts); err != nil {
+		return err
+	}
+
+	if err := createNginxDirectories(); err != nil {
+		return err
+	}
+
+	configs := []struct {
+		name      string
+		path      string
+		template  string
+		condition bool
 	}{
-		{"/var/www/html", 0755},
-		{"/var/www/ssl", 0755},
-		{"/etc/nginx", 0755},
-		{"/etc/nginx/conf.d", 0755},
-		{"/etc/nginx/stream.d", 0755},
-		{"/var/log/nginx", 0755},
-		{"/var/cache/nginx/client_temp", 0755},
-		{"/var/cache/nginx/proxy_temp", 0755},
-		{"/var/cache/nginx/fastcgi_temp", 0755},
-		{"/var/cache/nginx/scgi_temp", 0755},
-		{"/var/cache/nginx/uwsgi_temp", 0755},
+		{
+			name:      "HTTP redirect",
+			path:      filepath.Join(nginxConfDDir, "80.conf"),
+			template:  nginxRedirectTemplate,
+			condition: opts.Port == 443,
+		},
+		{
+			name:      "HSTS headers",
+			path:      filepath.Join(nginxConfDDir, ".HSTS"),
+			template:  nginxHSTSTemplate,
+			condition: true,
+		},
+		{
+			name:      "SSL certificates",
+			path:      filepath.Join(nginxConfDDir, ".ssl_certs"),
+			template:  nginxSSLCertsTemplate,
+			condition: true,
+		},
+		{
+			name:      "default server",
+			path:      filepath.Join(nginxConfDDir, "default.conf"),
+			template:  nginxDefaultTemplate,
+			condition: true,
+		},
+	}
+
+	for _, cfg := range configs {
+		if !cfg.condition {
+			if cfg.name == "HTTP redirect" {
+				_ = os.Remove(cfg.path)
+			}
+			continue
+		}
+
+		content, err := renderNginxTemplate(cfg.template, opts)
+		if err != nil {
+			return newConfiguratorError(
+				"configurator.EnsureNginxConfig",
+				"failed to render nginx template",
+				err,
+				apperrors.Metadata{
+					"config": cfg.name,
+					"path":   cfg.path,
+				},
+			)
+		}
+
+		if err := os.WriteFile(cfg.path, []byte(content), 0o644); err != nil {
+			return newConfiguratorError(
+				"configurator.EnsureNginxConfig",
+				"failed to write nginx configuration file",
+				err,
+				apperrors.Metadata{
+					"config": cfg.name,
+					"path":   cfg.path,
+				},
+			)
+		}
+	}
+
+	return nil
+}
+
+func validateNginxOptions(opts *NginxOptions) error {
+	if opts.Port < 1 || opts.Port > 65535 {
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"invalid port number",
+			nil,
+			apperrors.Metadata{"port": opts.Port},
+		)
+	}
+
+	if strings.TrimSpace(opts.Domain) == "" {
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"domain is required",
+			nil,
+			nil,
+		)
+	}
+
+	if strings.TrimSpace(opts.WSPath) == "" {
+		opts.WSPath = defaultWSPath
+	}
+
+	if opts.CertFile == "" {
+		opts.CertFile = defaultCertPath
+	}
+
+	if opts.KeyFile == "" {
+		opts.KeyFile = defaultKeyPath
+	}
+
+	if opts.DHParamFile == "" {
+		opts.DHParamFile = defaultDHParam
+	}
+
+	return nil
+}
+
+func createNginxDirectories() error {
+	directories := []string{
+		"/var/www/html",
+		sslDirectory,
+		nginxConfigDir,
+		nginxConfDDir,
+		nginxStreamDir,
+		"/var/log/nginx",
+		"/var/cache/nginx/client_temp",
+		"/var/cache/nginx/proxy_temp",
+		"/var/cache/nginx/fastcgi_temp",
+		"/var/cache/nginx/scgi_temp",
+		"/var/cache/nginx/uwsgi_temp",
 	}
 
 	for _, dir := range directories {
-		if err := os.MkdirAll(dir.path, dir.perms); err != nil {
-			return errors.Wrapf(err, "failed to create directory: %s", dir.path)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return newConfiguratorError(
+				"configurator.createNginxDirectories",
+				"failed to create nginx directory",
+				err,
+				apperrors.Metadata{"path": dir},
+			)
 		}
 	}
 
 	return nil
 }
 
-// EnsureNginxConfig extracts the nginxConf.zip file and places contents to /etc/nginx
-// This operation is atomic and complete - extraction happens to a temp directory first,
-// then moved to the final location
-func EnsureNginxConfig() error {
-	// Create all required nginx directories first
-	if err := createNginxDirectories(); err != nil {
-		return errors.Wrap(err, "failed to create nginx directories")
-	}
-
-	// Check if zip file exists
-	if _, err := os.Stat(nginxConfZipPath); os.IsNotExist(err) {
-		return errors.Wrapf(err, "nginx configuration zip file not found: %s", nginxConfZipPath)
-	}
-
-	// Clean up temp directory if it exists
-	if err := os.RemoveAll(nginxTempDir); err != nil {
-		return errors.Wrapf(err, "failed to clean up temporary directory: %s", nginxTempDir)
-	}
-
-	// Create temp directory for extraction
-	if err := os.MkdirAll(nginxTempDir, 0755); err != nil {
-		return errors.Wrapf(err, "failed to create temporary directory: %s", nginxTempDir)
-	}
-
-	// Extract zip file to temp directory
-	if err := extractZip(nginxConfZipPath, nginxTempDir); err != nil {
-		os.RemoveAll(nginxTempDir)
-		return errors.Wrapf(err, "failed to extract nginx configuration zip file")
-	}
-
-	// Ensure target directory exists
-	if err := os.MkdirAll(nginxConfigDir, 0755); err != nil {
-		os.RemoveAll(nginxTempDir)
-		return errors.Wrapf(err, "failed to create nginx configuration directory: %s", nginxConfigDir)
-	}
-
-	// Copy extracted files to /etc/nginx atomically
-	if err := copyDirectoryContents(nginxTempDir, nginxConfigDir); err != nil {
-		os.RemoveAll(nginxTempDir)
-		return errors.Wrapf(err, "failed to copy nginx configuration files")
-	}
-
-	// Clean up temp directory
-	if err := os.RemoveAll(nginxTempDir); err != nil {
-		return errors.Wrapf(err, "failed to clean up temporary directory")
-	}
-
-	return nil
-}
-
-// extractZip extracts a zip file to the target directory
-func extractZip(zipPath, targetDir string) error {
-	// Open the zip file
-	r, err := zip.OpenReader(zipPath)
+func renderNginxTemplate(tmpl string, data NginxOptions) (string, error) {
+	t, err := template.New("nginx").Parse(tmpl)
 	if err != nil {
-		return errors.Wrapf(err, "failed to open zip file: %s", zipPath)
-	}
-	defer r.Close()
-
-	// Extract each file
-	for _, f := range r.File {
-		if err := extractFile(f, targetDir); err != nil {
-			return errors.Wrapf(err, "failed to extract file: %s", f.Name)
-		}
+		return "", err
 	}
 
-	return nil
-}
-
-// extractFile extracts a single file from the zip archive
-func extractFile(f *zip.File, targetDir string) error {
-	// Build the target path
-	targetPath := filepath.Join(targetDir, f.Name)
-
-	// Check for path traversal attacks (zip slip vulnerability)
-	if !filepath.IsAbs(targetDir) {
-		targetDir, _ = filepath.Abs(targetDir)
-	}
-	extractPath, _ := filepath.Abs(targetPath)
-	if len(extractPath) < len(targetDir) || extractPath[:len(targetDir)] != targetDir {
-		return errors.Errorf("invalid file path in zip: %s", f.Name)
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return "", err
 	}
 
-	// Create directories if needed
-	if f.FileInfo().IsDir() {
-		return os.MkdirAll(targetPath, f.Mode())
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-		return errors.Wrapf(err, "failed to create directory: %s", filepath.Dir(targetPath))
-	}
-
-	// Open the file in the zip
-	rc, err := f.Open()
-	if err != nil {
-		return errors.Wrapf(err, "failed to open file in zip: %s", f.Name)
-	}
-	defer rc.Close()
-
-	// Create the target file
-	outFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-	if err != nil {
-		return errors.Wrapf(err, "failed to create target file: %s", targetPath)
-	}
-	defer outFile.Close()
-
-	// Copy file contents
-	_, err = outFile.ReadFrom(rc)
-	if err != nil {
-		return errors.Wrapf(err, "failed to write file contents: %s", targetPath)
-	}
-
-	return nil
-}
-
-// copyDirectoryContents copies all files and directories from src to dst
-func copyDirectoryContents(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Calculate relative path
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return errors.Wrapf(err, "failed to calculate relative path: %s", path)
-		}
-
-		// Build destination path
-		dstPath := filepath.Join(dst, relPath)
-
-		// Handle directories
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		// Handle files - copy with proper permissions
-		return copyFile(path, dstPath, info.Mode())
-	})
-}
-
-// copyFile copies a file from src to dst with the specified permissions
-func copyFile(src, dst string, mode os.FileMode) error {
-	// Read source file
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return errors.Wrapf(err, "failed to read source file: %s", src)
-	}
-
-	// Ensure destination directory exists
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return errors.Wrapf(err, "failed to create destination directory: %s", filepath.Dir(dst))
-	}
-
-	// Write to temporary file first for atomic operation
-	tmpDst := dst + ".tmp"
-	if err := os.WriteFile(tmpDst, data, mode); err != nil {
-		return errors.Wrapf(err, "failed to write temporary file: %s", tmpDst)
-	}
-
-	// Rename to final location (atomic operation)
-	if err := os.Rename(tmpDst, dst); err != nil {
-		os.Remove(tmpDst)
-		return errors.Wrapf(err, "failed to move file to final location: %s", dst)
-	}
-
-	return nil
+	return buf.String(), nil
 }

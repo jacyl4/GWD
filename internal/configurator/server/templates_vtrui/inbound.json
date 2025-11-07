@@ -5,18 +5,13 @@
       "port": 9890,
       "protocol": "vmess",
       "settings": {
-        "clients": [
-          {
-            "id": "预留变量",
-            "alterId": 0
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "ws",
         "security": "none",
         "wsSettings": {
-          "path": "预留变量"
+          "path": "/ws"
         },
         "sockopt": {
           "tcpFastOpen": true,
@@ -34,4 +29,3 @@
     }
   ]
 }
-
