@@ -58,17 +58,22 @@ makestep 1 3
 leapsectz right/UTC
 `
 
+var (
+	rngToolsServiceCandidates = []string{"rng-tools", "rng-tools-debian"}
+	chronyServiceCandidates   = []string{"chrony"}
+)
+
 // EnsureRngToolsConfigured writes rng-tools default configuration and restarts/enables the service
 func EnsureRngToolsConfigured() error {
 	if err := os.WriteFile(rngToolsDefaultPath, []byte(rngToolsDefaultContent), 0644); err != nil {
 		return errors.Wrapf(err, "failed to write rng-tools defaults %s", rngToolsDefaultPath)
 	}
 
-	if err := exec.Command("systemctl", "restart", "rng-tools").Run(); err != nil {
-		return errors.Wrap(err, "failed to restart rng-tools service")
+	if err := restartService(rngToolsServiceCandidates...); err != nil {
+		return err
 	}
-	if err := exec.Command("systemctl", "enable", "rng-tools").Run(); err != nil {
-		return errors.Wrap(err, "failed to enable rng-tools service")
+	if err := enableService(rngToolsServiceCandidates...); err != nil {
+		return err
 	}
 	return nil
 }
@@ -79,11 +84,11 @@ func EnsureChronyConfigured() error {
 		return errors.Wrapf(err, "failed to write chrony configuration %s", chronyConfPath)
 	}
 
-	if err := exec.Command("systemctl", "restart", "chrony").Run(); err != nil {
-		return errors.Wrap(err, "failed to restart chrony service")
+	if err := restartService(chronyServiceCandidates...); err != nil {
+		return err
 	}
-	if err := exec.Command("systemctl", "enable", "chrony").Run(); err != nil {
-		return errors.Wrap(err, "failed to enable chrony service")
+	if err := enableService(chronyServiceCandidates...); err != nil {
+		return err
 	}
 	return nil
 }
@@ -105,4 +110,34 @@ func EnsureTimezoneShanghai() error {
 		return errors.Wrap(err, "failed to set timezone to Asia/Shanghai")
 	}
 	return nil
+}
+
+func restartService(candidates ...string) error {
+	var lastErr error
+	for _, name := range candidates {
+		if err := exec.Command("systemctl", "restart", name).Run(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		return errors.New("no service candidates provided for restart")
+	}
+	return errors.Wrapf(lastErr, "failed to restart services %v", candidates)
+}
+
+func enableService(candidates ...string) error {
+	var lastErr error
+	for _, name := range candidates {
+		if err := exec.Command("systemctl", "enable", name).Run(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		return errors.New("no service candidates provided for enable")
+	}
+	return errors.Wrapf(lastErr, "failed to enable services %v", candidates)
 }
