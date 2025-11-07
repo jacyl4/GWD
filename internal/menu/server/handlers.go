@@ -1,13 +1,22 @@
 package menu
 
-import "github.com/pkg/errors"
+import (
+	apperrors "GWD/internal/errors"
+)
 
 func (m *Menu) handleInstallGWD() error {
 	m.logger.Info("Starting GWD server installation...")
 
 	domain, err := m.promptDomain()
 	if err != nil {
-		return errors.Wrap(err, "failed to get domain")
+		return apperrors.New(
+			apperrors.ErrCategoryValidation,
+			apperrors.CodeValidationGeneric,
+			"failed to capture domain input",
+			err,
+		).
+			WithModule("menu").
+			WithOperation("menu.handleInstallGWD")
 	}
 
 	domainInfo := m.parseDomainInput(domain)
@@ -15,7 +24,14 @@ func (m *Menu) handleInstallGWD() error {
 	if domainInfo.Port != "443" {
 		cf, err := m.promptCloudflareConfig()
 		if err != nil {
-			return errors.Wrap(err, "failed to get Cloudflare configuration")
+			return apperrors.New(
+				apperrors.ErrCategoryValidation,
+				apperrors.CodeValidationGeneric,
+				"failed to capture Cloudflare configuration",
+				err,
+			).
+				WithModule("menu").
+				WithOperation("menu.handleInstallGWD")
 		}
 		domainInfo.CloudflareConfig = cf
 	}
@@ -23,11 +39,25 @@ func (m *Menu) handleInstallGWD() error {
 	m.logger.Info("Domain: %s, Port: %s", domainInfo.Domain, domainInfo.Port)
 
 	if m.installHandler == nil {
-		return errors.New("installer handler is not configured")
+		return apperrors.New(
+			apperrors.ErrCategoryConfig,
+			apperrors.CodeConfigGeneric,
+			"installer handler is not configured",
+			nil,
+		).
+			WithModule("menu").
+			WithOperation("menu.handleInstallGWD")
 	}
 
 	if err := m.installHandler(domainInfo); err != nil {
-		return errors.Wrap(err, "GWD installation failed")
+		return apperrors.New(
+			apperrors.ErrCategoryDeployment,
+			apperrors.CodeDeploymentGeneric,
+			"GWD installation failed",
+			err,
+		).
+			WithModule("menu").
+			WithOperation("menu.handleInstallGWD")
 	}
 
 	m.waitForUserInput("\nPress Enter to continue...")

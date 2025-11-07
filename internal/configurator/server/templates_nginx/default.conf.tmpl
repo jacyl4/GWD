@@ -1,13 +1,15 @@
 server {
   listen {{.Port}} default quic reuseport;
   listen {{.Port}} default ssl fastopen=500 reuseport;
+  listen [::]:{{.Port}} default quic reuseport;
+  listen [::]:{{.Port}} default ssl fastopen=500 reuseport;
   http2 on;
   server_name {{.Domain}};
   root /var/www/html;
   index index.php index.html index.htm;
   error_page 497 https://$host:{{.Port}}$request_uri;
 
-  add_header Alt-Svc 'h3=":443";ma=86400,quic=":443"; ma=2592000; v="46,43"';
+  add_header Alt-Svc 'h3=":{{.Port}}";ma=86400,quic=":{{.Port}}"; ma=2592000; v="46,43"';
 
   include /etc/nginx/conf.d/.HSTS;
 
@@ -29,6 +31,10 @@ server {
     proxy_http_version          1.1;
     proxy_set_header            Host $host;
     proxy_set_header            X-Real-IP $remote_addr;
+    proxy_set_header            X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header            X-Forwarded-Proto $scheme;
+    proxy_set_header            X-Forwarded-Host $host;
+    proxy_set_header            X-Forwarded-Port $server_port;
     proxy_connect_timeout       600;
     proxy_read_timeout          600;
     proxy_send_timeout          600;
@@ -53,6 +59,9 @@ server {
     proxy_set_header            X-Real-IP $remote_addr;
     proxy_set_header            X-Real-PORT $remote_port;
     proxy_set_header            X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header            X-Forwarded-Proto $scheme;
+    proxy_set_header            X-Forwarded-Host $host;
+    proxy_set_header            X-Forwarded-Port $server_port;
     proxy_connect_timeout       600;
     proxy_read_timeout          600;
     proxy_send_timeout          600;
