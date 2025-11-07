@@ -5,25 +5,37 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_RESOURCE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN CAP_SYS_RESOURCE
-NoNewPrivileges=true
+User=root
+WorkingDirectory=/var/lib/tcsss
 
-LimitSIGPENDING=infinity
-LimitMSGQUEUE=infinity
+# Resource limits
+LimitNOFILE=1048576
+LimitNPROC=512
+LimitMSGQUEUE=8388608
 
+# Directories
 RuntimeDirectory=tcsss
 StateDirectory=tcsss
 LogsDirectory=tcsss
+
+# Logging
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=tcsss
 
-ExecStart=/usr/local/bin/tcsss s
-ExecStop=/bin/kill -s SIGTERM $MAINPID
+# Execution
+ExecStart=/usr/local/bin/tcsss
 Restart=on-failure
-RestartSec=2
-RestartPreventExitStatus=23
-TimeoutStopSec=15
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Security (minimal for root network service)
+ProtectKernelModules=false
+ProtectKernelLogs=false
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target
