@@ -11,7 +11,7 @@ func ensureBaseChains(table *nf.Table, cfg *Config) error {
 
 	chains, err := conn.ListChainsOfTableFamily(table.Family)
 	if err != nil {
-		return wrapFirewallError(err, "nftables.ensureBaseChains.list", "failed to enumerate chains", apperrors.Metadata{
+		return firewallError("nftables.ensureBaseChains.list", "failed to enumerate chains", err, apperrors.Metadata{
 			"table": table.Name,
 		})
 	}
@@ -55,7 +55,7 @@ func ensureBaseChains(table *nf.Table, cfg *Config) error {
 	}
 
 	if err := conn.Flush(); err != nil {
-		return wrapFirewallError(err, "nftables.ensureBaseChains.flush", "failed to ensure chains", apperrors.Metadata{
+		return firewallError("nftables.ensureBaseChains.flush", "failed to ensure chains", err, apperrors.Metadata{
 			"table": table.Name,
 		})
 	}
@@ -96,7 +96,7 @@ func programChains(table *nf.Table, cfg *Config, lanSet *nf.Set, flowDevices, in
 	}
 
 	if err := conn.Flush(); err != nil {
-		return wrapFirewallError(err, "nftables.programChains.flush", "failed to program nftables chains", apperrors.Metadata{
+		return firewallError("nftables.programChains.flush", "failed to program nftables chains", err, apperrors.Metadata{
 			"table": table.Name,
 		})
 	}

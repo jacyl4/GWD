@@ -11,20 +11,18 @@ func zeroBytes(n int) []byte {
 	return make([]byte, n)
 }
 
+func encodeInterfaceName(name string) []byte {
+	var buf [ifNameSize]byte
+	copy(buf[:], name)
+	return buf[:]
+}
+
 func uniqueStrings(values []string) []string {
-	set := make(map[string]struct{}, len(values))
-	for _, v := range values {
-		if v == "" {
-			continue
-		}
-		set[v] = struct{}{}
+	keys := sortedKeys(stringSet(values))
+	if keys == nil {
+		return []string{}
 	}
-	result := make([]string, 0, len(set))
-	for v := range set {
-		result = append(result, v)
-	}
-	sort.Strings(result)
-	return result
+	return keys
 }
 
 func mergeStringSets(groups ...[]string) []string {

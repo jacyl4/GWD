@@ -30,7 +30,7 @@ func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
 	if existing != nil {
 		conn.DelFlowtable(&nf.Flowtable{Table: table, Name: cfg.FlowtableName})
 		if err := conn.Flush(); err != nil {
-			return wrapFirewallError(err, "nftables.ensureFlowtable.flushDelete", "failed to delete existing flowtable", apperrors.Metadata{
+			return firewallError("nftables.ensureFlowtable.flushDelete", "failed to delete existing flowtable", err, apperrors.Metadata{
 				"flowtable": cfg.FlowtableName,
 			})
 		}
@@ -45,7 +45,7 @@ func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
 	})
 
 	if err := conn.Flush(); err != nil {
-		return wrapFirewallError(err, "nftables.ensureFlowtable.flushApply", "failed to apply flowtable configuration", apperrors.Metadata{
+		return firewallError("nftables.ensureFlowtable.flushApply", "failed to apply flowtable configuration", err, apperrors.Metadata{
 			"flowtable": cfg.FlowtableName,
 		})
 	}
@@ -56,7 +56,7 @@ func ensureFlowtable(table *nf.Table, cfg *Config, devices []string) error {
 func findFlowtable(conn *nf.Conn, table *nf.Table, name string) (*nf.Flowtable, error) {
 	flowtables, err := conn.ListFlowtables(table)
 	if err != nil {
-		return nil, wrapFirewallError(err, "nftables.findFlowtable", "failed to list flowtables", apperrors.Metadata{
+		return nil, firewallError("nftables.findFlowtable", "failed to list flowtables", err, apperrors.Metadata{
 			"table": table.Name,
 		})
 	}

@@ -79,7 +79,7 @@ func Remove(cfg *Config) error {
 	})
 
 	if err := conn.Flush(); err != nil {
-		return wrapFirewallError(err, "nftables.Remove", "failed to delete nftables table", nil)
+		return firewallError("nftables.Remove", "failed to delete nftables table", err, nil)
 	}
 
 	return nil

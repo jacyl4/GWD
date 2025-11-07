@@ -21,7 +21,7 @@ func ensureTableExists(table *nf.Table) error {
 		Family: table.Family,
 	})
 	if err := conn.Flush(); err != nil {
-		return wrapFirewallError(err, "nftables.ensureTableExists.flush", "failed to create table", apperrors.Metadata{
+		return firewallError("nftables.ensureTableExists.flush", "failed to create table", err, apperrors.Metadata{
 			"table": table.Name,
 		})
 	}
@@ -31,7 +31,7 @@ func ensureTableExists(table *nf.Table) error {
 func tableExists(conn *nf.Conn, name string, family nf.TableFamily) (bool, error) {
 	tables, err := conn.ListTablesOfFamily(family)
 	if err != nil {
-		return false, wrapFirewallError(err, "nftables.tableExists", "failed to list tables", apperrors.Metadata{
+		return false, firewallError("nftables.tableExists", "failed to list tables", err, apperrors.Metadata{
 			"family": family,
 		})
 	}
