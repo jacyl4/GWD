@@ -13,6 +13,7 @@ import (
 	"GWD/internal/logger"
 	dpkg "GWD/internal/pkgmgr"
 	"GWD/internal/system"
+	timesync "GWD/internal/timesync"
 	ui "GWD/internal/ui/server"
 )
 
@@ -106,6 +107,7 @@ func (i *Installer) InstallGWD(cfg *InstallConfig) error {
 		{"Configure rng-tools and chrony", "installer.configureEntropyAndTime", apperrors.ErrCategorySystem, configserver.EnsureEntropyAndTimeConfigured},
 		{"Configure unbound", "installer.configureUnbound", apperrors.ErrCategorySystem, configserver.EnsureUnboundConfig},
 		{"Configure resolvconf", "installer.configureResolvconf", apperrors.ErrCategorySystem, configserver.EnsureResolvconfConfig},
+		{"Synchronize system time", "installer.syncTime", apperrors.ErrCategorySystem, i.syncSystemTime},
 		{"Download repository files", "installer.downloadRepository", apperrors.ErrCategoryDependency, i.repository.DownloadAll},
 		{"Install tcsss", "installer.installTcsss", apperrors.ErrCategoryDeployment, i.installTcsss},
 		{"Install DoH server", "installer.installDoH", apperrors.ErrCategoryDeployment, i.installDOHServer},
@@ -152,6 +154,18 @@ func (i *Installer) createWorkingDirectories() error {
 		i.logger.Debug("Created directory: %s", dir.path)
 	}
 
+	return nil
+}
+
+func (i *Installer) syncSystemTime() error {
+	i.logger.Info("Synchronizing system time...")
+	result, err := timesync.Sync(context.Background(), nil)
+	if err != nil {
+		return i.wrapError(apperrors.ErrCategorySystem, "installer.syncSystemTime", "Time synchronization failed", err, nil)
+	}
+	if result != nil {
+		i.logger.Info("System time synchronized using %s (hwclock: %s)", result.Source, result.HwClockInfo)
+	}
 	return nil
 }
 

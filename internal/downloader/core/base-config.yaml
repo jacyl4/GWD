@@ -20,6 +20,48 @@ components:
       amd64: "tcsss/tcsss"
       arm64: "tcsss/tcsss-arm64"
 
+  - name: "tcsss/templates/1-server.conf"
+    display_name: "TCSSS Server Template"
+    min_size: 512
+    executable: false
+    paths:
+      all: "tcsss/templates/1-server.conf"
+
+  - name: "tcsss/templates/common.conf"
+    display_name: "TCSSS Common Template"
+    min_size: 4096
+    executable: false
+    paths:
+      all: "tcsss/templates/common.conf"
+
+  - name: "tcsss/templates/limits_1gb.conf"
+    display_name: "TCSSS Limits 1GB Template"
+    min_size: 4096
+    executable: false
+    paths:
+      all: "tcsss/templates/limits_1gb.conf"
+
+  - name: "tcsss/templates/limits_4gb.conf"
+    display_name: "TCSSS Limits 4GB Template"
+    min_size: 4096
+    executable: false
+    paths:
+      all: "tcsss/templates/limits_4gb.conf"
+
+  - name: "tcsss/templates/limits_8gb.conf"
+    display_name: "TCSSS Limits 8GB Template"
+    min_size: 4096
+    executable: false
+    paths:
+      all: "tcsss/templates/limits_8gb.conf"
+
+  - name: "tcsss/templates/limits_12gb.conf"
+    display_name: "TCSSS Limits 12GB Template"
+    min_size: 4096
+    executable: false
+    paths:
+      all: "tcsss/templates/limits_12gb.conf"
+
   - name: "vtrui"
     display_name: "vtrui"
     min_size: 524288
