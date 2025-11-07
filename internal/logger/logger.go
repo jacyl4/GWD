@@ -1,10 +1,6 @@
 package logger
 
-import (
-	"context"
-
-	apperrors "GWD/internal/errors"
-)
+import "context"
 
 // Logger describes the core behaviour required by logging implementations.
 type Logger interface {
@@ -29,9 +25,6 @@ type Logger interface {
 	// Level control.
 	SetLevel(level Level)
 	GetLevel() Level
-
-	// ErrorWithAppError logs a structured error using AppError metadata.
-	ErrorWithAppError(ctx context.Context, msg string, err *apperrors.AppError)
 }
 
 // Level represents the severity of a log entry.

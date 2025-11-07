@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -114,15 +113,12 @@ type ColoredFormatter struct {
 
 // Format converts the Entry into a coloured textual representation.
 func (f *ColoredFormatter) Format(entry *Entry) ([]byte, error) {
-	var buf bytes.Buffer
-
 	timestampFormat := f.timestampFormat
 	if timestampFormat == "" {
 		timestampFormat = time.RFC3339
 	}
 
-	buf.WriteString(entry.Time.Format(timestampFormat))
-	buf.WriteString(" ")
+	timestamp := entry.Time.Format(timestampFormat)
 
 	level := entry.Level.String()
 	if f.enableColors {
@@ -131,30 +127,16 @@ func (f *ColoredFormatter) Format(entry *Entry) ([]byte, error) {
 		}
 	}
 
-	buf.WriteString("[")
-	buf.WriteString(level)
-	buf.WriteString("] ")
-
-	buf.WriteString(entry.Message)
-
-	for _, field := range entry.Fields {
-		buf.WriteString(" ")
+	faint := color.New(color.Faint)
+	fieldFormatter := func(field Field) string {
 		fieldText := fmt.Sprintf("%s=%v", field.Key, field.Value)
 		if f.enableColors {
-			buf.WriteString(color.New(color.Faint).Sprint(fieldText))
-		} else {
-			buf.WriteString(fieldText)
+			return faint.Sprint(fieldText)
 		}
+		return fieldText
 	}
 
-	if entry.Caller != nil {
-		buf.WriteString(" ")
-		buf.WriteString("caller=")
-		buf.WriteString(fmt.Sprintf("%s:%d", entry.Caller.File, entry.Caller.Line))
-	}
-
-	buf.WriteString("\n")
-	return buf.Bytes(), nil
+	return formatEntry(entry, timestamp, level, fieldFormatter), nil
 }
 
 func supportsColor(w io.Writer) bool {

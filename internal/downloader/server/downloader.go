@@ -27,21 +27,21 @@ type Downloader struct {
 func New(cfg *system.SystemConfig, log logger.ProgressLogger) (*Downloader, error) {
 	baseCfg, err := core.BaseConfig()
 	if err != nil {
-		return nil, apperrors.DependencyError(apperrors.CodeDependencyGeneric, "failed to load base download configuration", err).
+		return nil, apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "failed to load base download configuration", err).
 			WithModule("downloader.server").
 			WithOperation("New")
 	}
 
 	extraCfg, err := core.ParseConfig(serverExtraConfig)
 	if err != nil {
-		return nil, apperrors.ConfigError(apperrors.CodeConfigGeneric, "failed to parse server download configuration", err).
+		return nil, apperrors.New(apperrors.ErrCategoryConfig, apperrors.CodeConfigGeneric, "failed to parse server download configuration", err).
 			WithModule("downloader.server").
 			WithOperation("New")
 	}
 
 	mergedCfg, err := core.MergeConfigs(baseCfg, extraCfg)
 	if err != nil {
-		return nil, apperrors.ConfigError(apperrors.CodeConfigGeneric, "failed to merge download configurations", err).
+		return nil, apperrors.New(apperrors.ErrCategoryConfig, apperrors.CodeConfigGeneric, "failed to merge download configurations", err).
 			WithModule("downloader.server").
 			WithOperation("New")
 	}
@@ -68,7 +68,7 @@ func (d *Downloader) DownloadAll() error {
 
 	repoDir := d.cfg.GetRepoDir()
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
-		return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to create repository directory", err).
+		return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to create repository directory", err).
 			WithModule("downloader.server").
 			WithOperation("DownloadAll").
 			WithField("repo_dir", repoDir)
@@ -76,7 +76,7 @@ func (d *Downloader) DownloadAll() error {
 
 	targets, err := d.repo.BuildTargets(repoDir, d.cfg.Architecture)
 	if err != nil {
-		return apperrors.DependencyError(apperrors.CodeDependencyGeneric, "failed to prepare download targets", err).
+		return apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "failed to prepare download targets", err).
 			WithModule("downloader.server").
 			WithOperation("DownloadAll")
 	}

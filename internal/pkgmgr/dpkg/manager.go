@@ -234,7 +234,7 @@ func wrapDPKGError(err error, operation, message string, metadata apperrors.Meta
 }
 
 func newDPKGError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.DependencyError(apperrors.CodeDependencyGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, message, err).
 		WithModule("pkgmgr.dpkg").
 		WithOperation(operation)
 	if metadata != nil {

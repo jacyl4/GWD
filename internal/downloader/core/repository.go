@@ -58,12 +58,12 @@ func WithProgressReporter(reporter ProgressReporter) RepositoryOption {
 // NewRepository constructs a Repository using the provided configuration, logger and options.
 func NewRepository(cfg *DownloadConfig, log Logger, opts ...RepositoryOption) (*Repository, error) {
 	if cfg == nil {
-		return nil, apperrors.ConfigError(apperrors.CodeConfigGeneric, "download configuration must not be nil", nil).
+		return nil, apperrors.New(apperrors.ErrCategoryConfig, apperrors.CodeConfigGeneric, "download configuration must not be nil", nil).
 			WithModule("downloader.core").
 			WithOperation("NewRepository")
 	}
 	if log == nil {
-		return nil, apperrors.SystemError(apperrors.CodeSystemGeneric, "logger must not be nil", nil).
+		return nil, apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "logger must not be nil", nil).
 			WithModule("downloader.core").
 			WithOperation("NewRepository")
 	}
@@ -130,7 +130,7 @@ func (r *Repository) DownloadWithContext(ctx context.Context, targets []Target) 
 				appErr.WithField("target", target.Name)
 				return appErr
 			}
-			return apperrors.DependencyError(apperrors.CodeDependencyGeneric, "failed to download file", err).
+			return apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "failed to download file", err).
 				WithModule("downloader.core").
 				WithOperation("DownloadWithContext").
 				WithField("target", target.Name)
@@ -166,7 +166,7 @@ func (r *Repository) BuildTargets(repoDir, arch string) ([]Target, error) {
 				appErr.WithField("component", component.Name)
 				return nil, appErr
 			}
-			return nil, apperrors.DependencyError(apperrors.CodeDependencyGeneric, "failed to prepare download target", err).
+			return nil, apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "failed to prepare download target", err).
 				WithModule("downloader.core").
 				WithOperation("BuildTargets").
 				WithField("component", component.Name)
@@ -238,7 +238,7 @@ func (r *Repository) needsDownload(localPath, expectedHash string) (bool, error)
 		if stdErrors.Is(err, os.ErrNotExist) {
 			return true, nil
 		}
-		return true, apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to inspect local file", err).
+		return true, apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to inspect local file", err).
 			WithModule("downloader.core").
 			WithOperation("needsDownload").
 			WithField("path", localPath)
@@ -254,7 +254,7 @@ func (r *Repository) needsDownload(localPath, expectedHash string) (bool, error)
 
 func (r *Repository) prepareDownload(target Target) error {
 	if err := r.fs.MkdirAll(filepath.Dir(target.LocalPath), 0o755); err != nil {
-		return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to create directory", err).
+		return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to create directory", err).
 			WithModule("downloader.core").
 			WithOperation("prepareDownload").
 			WithField("path", filepath.Dir(target.LocalPath))
@@ -262,7 +262,7 @@ func (r *Repository) prepareDownload(target Target) error {
 
 	if target.TempPath != "" {
 		if err := r.fs.Remove(target.TempPath); err != nil && !stdErrors.Is(err, os.ErrNotExist) {
-			return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to remove temporary file", err).
+			return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to remove temporary file", err).
 				WithModule("downloader.core").
 				WithOperation("prepareDownload").
 				WithField("temp_path", target.TempPath)
@@ -280,7 +280,7 @@ func (r *Repository) finalizeDownload(tempPath string, target Target) error {
 				WithOperation("finalizeDownload").
 				WithField("target", target.Name)
 		}
-		return apperrors.DependencyError(apperrors.CodeDependencyGeneric, "downloaded file size validation failed", err).
+		return apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "downloaded file size validation failed", err).
 			WithModule("downloader.core").
 			WithOperation("finalizeDownload").
 			WithField("target", target.Name)
@@ -293,7 +293,7 @@ func (r *Repository) finalizeDownload(tempPath string, target Target) error {
 				WithOperation("finalizeDownload").
 				WithField("target", target.Name)
 		}
-		return apperrors.DependencyError(apperrors.CodeDependencyGeneric, "downloaded file checksum validation failed", err).
+		return apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "downloaded file checksum validation failed", err).
 			WithModule("downloader.core").
 			WithOperation("finalizeDownload").
 			WithField("target", target.Name)
@@ -301,7 +301,7 @@ func (r *Repository) finalizeDownload(tempPath string, target Target) error {
 
 	if tempPath != target.LocalPath {
 		if err := r.fs.Rename(tempPath, target.LocalPath); err != nil {
-			return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to move downloaded file", err).
+			return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to move downloaded file", err).
 				WithModule("downloader.core").
 				WithOperation("finalizeDownload").
 				WithFields(apperrors.Metadata{
@@ -313,7 +313,7 @@ func (r *Repository) finalizeDownload(tempPath string, target Target) error {
 
 	if target.Executable {
 		if err := r.fs.Chmod(target.LocalPath, 0o755); err != nil {
-			return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to set execute permissions", err).
+			return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to set execute permissions", err).
 				WithModule("downloader.core").
 				WithOperation("finalizeDownload").
 				WithField("path", target.LocalPath)
@@ -356,13 +356,13 @@ func (r *Repository) downloadFile(ctx context.Context, url, localPath, name stri
 			appErr.WithField("url", url)
 			return appErr
 		}
-		return apperrors.NetworkError(apperrors.CodeNetworkGeneric, "download failed after retries", lastErr).
+		return apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "download failed after retries", lastErr).
 			WithModule("downloader.core").
 			WithOperation("downloadFile").
 			WithField("url", url)
 	}
 
-	return apperrors.NetworkError(apperrors.CodeNetworkGeneric, "download failed: exceeded retry limit", nil).
+	return apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "download failed: exceeded retry limit", nil).
 		WithModule("downloader.core").
 		WithOperation("downloadFile").
 		WithField("url", url)
@@ -371,7 +371,7 @@ func (r *Repository) downloadFile(ctx context.Context, url, localPath, name stri
 func (r *Repository) doDownload(ctx context.Context, url, localPath, name string, supportResume bool) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return apperrors.NetworkError(apperrors.CodeNetworkGeneric, "failed to create download request", err).
+		return apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "failed to create download request", err).
 			WithModule("downloader.core").
 			WithOperation("doDownload").
 			WithField("url", url)
@@ -380,7 +380,7 @@ func (r *Repository) doDownload(ctx context.Context, url, localPath, name string
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return apperrors.NetworkError(apperrors.CodeNetworkGeneric, "download request failed", err).
+		return apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "download request failed", err).
 			WithModule("downloader.core").
 			WithOperation("doDownload").
 			WithField("url", url)
@@ -388,7 +388,7 @@ func (r *Repository) doDownload(ctx context.Context, url, localPath, name string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return apperrors.NetworkError(apperrors.CodeNetworkGeneric, "download failed with unexpected status", nil).
+		return apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "download failed with unexpected status", nil).
 			WithModule("downloader.core").
 			WithOperation("doDownload").
 			WithFields(apperrors.Metadata{
@@ -399,7 +399,7 @@ func (r *Repository) doDownload(ctx context.Context, url, localPath, name string
 
 	file, err := r.fs.Create(localPath)
 	if err != nil {
-		return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to create local file", err).
+		return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to create local file", err).
 			WithModule("downloader.core").
 			WithOperation("doDownload").
 			WithField("path", localPath)
@@ -415,7 +415,7 @@ func (r *Repository) doDownload(ctx context.Context, url, localPath, name string
 
 	buf := make([]byte, copyBufferSize)
 	if _, err := io.CopyBuffer(file, progressReader, buf); err != nil {
-		return apperrors.SystemError(apperrors.CodeSystemGeneric, "failed to write file to disk", err).
+		return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, "failed to write file to disk", err).
 			WithModule("downloader.core").
 			WithOperation("doDownload").
 			WithField("path", localPath)
@@ -429,7 +429,7 @@ func (r *Repository) doDownload(ctx context.Context, url, localPath, name string
 func (r *Repository) fetchHash(ctx context.Context, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", apperrors.NetworkError(apperrors.CodeNetworkGeneric, "failed to create hash request", err).
+		return "", apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "failed to create hash request", err).
 			WithModule("downloader.core").
 			WithOperation("fetchHash").
 			WithField("url", url)
@@ -437,7 +437,7 @@ func (r *Repository) fetchHash(ctx context.Context, url string) (string, error) 
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", apperrors.NetworkError(apperrors.CodeNetworkGeneric, "failed to request hash file", err).
+		return "", apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "failed to request hash file", err).
 			WithModule("downloader.core").
 			WithOperation("fetchHash").
 			WithField("url", url)
@@ -445,7 +445,7 @@ func (r *Repository) fetchHash(ctx context.Context, url string) (string, error) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", apperrors.NetworkError(apperrors.CodeNetworkGeneric, "failed to fetch hash file", nil).
+		return "", apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "failed to fetch hash file", nil).
 			WithModule("downloader.core").
 			WithOperation("fetchHash").
 			WithFields(apperrors.Metadata{
@@ -456,7 +456,7 @@ func (r *Repository) fetchHash(ctx context.Context, url string) (string, error) 
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", apperrors.NetworkError(apperrors.CodeNetworkGeneric, "failed to read hash file content", err).
+		return "", apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "failed to read hash file content", err).
 			WithModule("downloader.core").
 			WithOperation("fetchHash").
 			WithField("url", url)
@@ -464,7 +464,7 @@ func (r *Repository) fetchHash(ctx context.Context, url string) (string, error) 
 
 	fields := strings.Fields(string(body))
 	if len(fields) == 0 {
-		return "", apperrors.NetworkError(apperrors.CodeNetworkGeneric, "invalid hash file format", nil).
+		return "", apperrors.NewRecoverable(apperrors.ErrCategoryNetwork, apperrors.CodeNetworkGeneric, "invalid hash file format", nil).
 			WithModule("downloader.core").
 			WithOperation("fetchHash").
 			WithField("url", url)

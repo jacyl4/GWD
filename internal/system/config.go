@@ -105,7 +105,7 @@ func LoadSystemConfig() (*SystemConfig, error) {
 }
 
 func newSystemError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.SystemError(apperrors.CodeSystemGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, message, err).
 		WithModule("system").
 		WithOperation(operation)
 	if metadata != nil {

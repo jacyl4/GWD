@@ -45,47 +45,25 @@ type TextFormatter struct {
 
 // Format converts the Entry into a textual representation.
 func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
-	var buf bytes.Buffer
-
 	timestampFormat := f.TimestampFormat
 	if timestampFormat == "" {
 		timestampFormat = time.RFC3339
 	}
 
+	var timestamp string
 	if !f.DisableTimestamp {
 		if f.FullTimestamp {
-			buf.WriteString(entry.Time.Format(timestampFormat))
+			timestamp = entry.Time.Format(timestampFormat)
 		} else {
-			buf.WriteString(entry.Time.Format("15:04:05"))
+			timestamp = entry.Time.Format("15:04:05")
 		}
-		buf.WriteString(" ")
 	}
 
 	levelText := entry.Level.String()
 	if f.shouldColorize() {
 		levelText = f.colorize(levelText, entry.Level)
 	}
-	buf.WriteString("[")
-	buf.WriteString(levelText)
-	buf.WriteString("] ")
-
-	buf.WriteString(entry.Message)
-
-	for _, field := range entry.Fields {
-		buf.WriteString(" ")
-		buf.WriteString(field.Key)
-		buf.WriteString("=")
-		buf.WriteString(fmt.Sprintf("%v", field.Value))
-	}
-
-	if entry.Caller != nil {
-		buf.WriteString(" ")
-		buf.WriteString("caller=")
-		buf.WriteString(fmt.Sprintf("%s:%d", entry.Caller.File, entry.Caller.Line))
-	}
-
-	buf.WriteString("\n")
-	return buf.Bytes(), nil
+	return formatEntry(entry, timestamp, levelText, nil), nil
 }
 
 func (f *TextFormatter) shouldColorize() bool {
@@ -177,4 +155,43 @@ func (f *JSONFormatter) Format(entry *Entry) ([]byte, error) {
 	}
 
 	return bytes, nil
+}
+
+type fieldFormatter func(Field) string
+
+func defaultFieldFormatter(field Field) string {
+	return fmt.Sprintf("%s=%v", field.Key, field.Value)
+}
+
+func formatEntry(entry *Entry, timestamp, levelText string, formatter fieldFormatter) []byte {
+	if formatter == nil {
+		formatter = defaultFieldFormatter
+	}
+
+	var buf bytes.Buffer
+
+	if timestamp != "" {
+		buf.WriteString(timestamp)
+		buf.WriteString(" ")
+	}
+
+	buf.WriteString("[")
+	buf.WriteString(levelText)
+	buf.WriteString("] ")
+
+	buf.WriteString(entry.Message)
+
+	for _, field := range entry.Fields {
+		buf.WriteString(" ")
+		buf.WriteString(formatter(field))
+	}
+
+	if entry.Caller != nil {
+		buf.WriteString(" ")
+		buf.WriteString("caller=")
+		buf.WriteString(fmt.Sprintf("%s:%d", entry.Caller.File, entry.Caller.Line))
+	}
+
+	buf.WriteString("\n")
+	return buf.Bytes()
 }

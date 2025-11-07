@@ -5,7 +5,7 @@ import (
 )
 
 func newConfiguratorError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.ConfigError(apperrors.CodeConfigGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategoryConfig, apperrors.CodeConfigGeneric, message, err).
 		WithModule("configurator").
 		WithOperation(operation)
 	if metadata != nil {

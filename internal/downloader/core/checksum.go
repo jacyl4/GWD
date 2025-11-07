@@ -83,7 +83,7 @@ func ValidateFileSize(fs FileSystem, filePath string, minSize int64) error {
 }
 
 func newChecksumError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.DependencyError(apperrors.CodeDependencyGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, message, err).
 		WithModule("downloader.checksum").
 		WithOperation(operation)
 	if metadata != nil {

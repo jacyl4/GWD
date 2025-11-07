@@ -127,14 +127,21 @@ func (l *StandardLogger) ErrorContext(ctx context.Context, msg string, fields ..
 
 // With derives a new logger enriched with the provided fields.
 func (l *StandardLogger) With(fields ...Field) Logger {
+	l.mu.Lock()
+	baseFields := append([]Field{}, l.fields...)
+	level := l.level
+	output := l.output
+	formatter := l.formatter
+	reportCaller := l.reportCaller
+	l.mu.Unlock()
+
 	child := &StandardLogger{
-		level:        l.level,
-		output:       l.output,
-		formatter:    l.formatter,
-		reportCaller: l.reportCaller,
-		fields:       append([]Field{}, l.fields...),
+		level:        level,
+		output:       output,
+		formatter:    formatter,
+		reportCaller: reportCaller,
+		fields:       append(baseFields, fields...),
 	}
-	child.fields = append(child.fields, fields...)
 	return child
 }
 

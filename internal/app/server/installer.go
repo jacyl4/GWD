@@ -13,6 +13,7 @@ import (
 	"GWD/internal/deployer"
 	serverdownloader "GWD/internal/downloader/server"
 	apperrors "GWD/internal/errors"
+	errorlog "GWD/internal/errors/logging"
 	"GWD/internal/logger"
 	menu "GWD/internal/menu/server"
 	"GWD/internal/pkgmgr/dpkg"
@@ -67,7 +68,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 			appErr := normalizeInstallerError(err, step.category, step.operation, fmt.Sprintf("%s failed", step.name), apperrors.Metadata{
 				"step": step.name,
 			})
-			i.logger.ErrorWithAppError(ctx, fmt.Sprintf("%s failed", step.name), appErr)
+			errorlog.Error(ctx, i.logger, fmt.Sprintf("%s failed", step.name), appErr)
 			return appErr
 		}
 		i.logger.ProgressDone(step.name)
@@ -101,7 +102,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 			appErr := normalizeInstallerError(err, step.category, step.operation, fmt.Sprintf("%s failed", step.name), apperrors.Metadata{
 				"step": step.name,
 			})
-			i.logger.ErrorWithAppError(ctx, fmt.Sprintf("%s failed", step.name), appErr)
+			errorlog.Error(ctx, i.logger, fmt.Sprintf("%s failed", step.name), appErr)
 			return appErr
 		}
 		i.logger.ProgressDone(step.name)
@@ -422,7 +423,7 @@ func normalizeInstallerError(err error, category apperrors.ErrorCategory, operat
 
 func newInstallerError(category apperrors.ErrorCategory, message, operation string, err error, metadata apperrors.Metadata) *apperrors.AppError {
 	code := installerCodeForCategory(category)
-	appErr := apperrors.New(code, category, message, err).
+	appErr := apperrors.New(category, code, message, err).
 		WithModule("installer").
 		WithOperation(operation)
 	if metadata != nil {

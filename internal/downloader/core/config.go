@@ -164,7 +164,7 @@ func decodeConfig(data []byte) (*DownloadConfig, error) {
 }
 
 func newConfigError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.ConfigError(apperrors.CodeConfigGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategoryConfig, apperrors.CodeConfigGeneric, message, err).
 		WithModule("downloader.config").
 		WithOperation(operation)
 	if metadata != nil {

@@ -251,7 +251,7 @@ func newTimesyncError(category apperrors.ErrorCategory, operation, message strin
 		code = apperrors.CodeSystemGeneric
 	}
 
-	appErr := apperrors.New(code, category, message, err).
+	appErr := apperrors.New(category, code, message, err).
 		WithModule("timesync").
 		WithOperation(operation)
 	if metadata != nil {

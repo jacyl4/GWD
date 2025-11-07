@@ -10,6 +10,7 @@ import (
 type Metadata map[string]interface{}
 
 // Clone returns a shallow copy of the metadata map.
+// Reference values stored in the map are not deep-copied.
 func (m Metadata) Clone() Metadata {
 	if len(m) == 0 {
 		return nil
@@ -57,36 +58,24 @@ func (e *AppError) Unwrap() error {
 
 // WithOperation annotates the error with the current operation name.
 func (e *AppError) WithOperation(operation string) *AppError {
-	if e == nil {
-		return nil
-	}
 	e.Operation = operation
 	return e
 }
 
 // WithModule annotates the error with the module name.
 func (e *AppError) WithModule(module string) *AppError {
-	if e == nil {
-		return nil
-	}
 	e.Module = module
 	return e
 }
 
 // WithRecoverable toggles the recoverable flag.
 func (e *AppError) WithRecoverable(recoverable bool) *AppError {
-	if e == nil {
-		return nil
-	}
 	e.Recoverable = recoverable
 	return e
 }
 
 // WithField appends a single metadata entry.
 func (e *AppError) WithField(key string, value interface{}) *AppError {
-	if e == nil {
-		return nil
-	}
 	if e.Metadata == nil {
 		e.Metadata = make(Metadata)
 	}
@@ -96,9 +85,6 @@ func (e *AppError) WithField(key string, value interface{}) *AppError {
 
 // WithFields merges the provided metadata entries.
 func (e *AppError) WithFields(metadata Metadata) *AppError {
-	if e == nil {
-		return nil
-	}
 	if len(metadata) == 0 {
 		return e
 	}

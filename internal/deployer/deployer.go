@@ -141,7 +141,7 @@ func (g *GenericDeployer) Validate() error {
 }
 
 func newDeployerError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.DeploymentError(apperrors.CodeDeploymentGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategoryDeployment, apperrors.CodeDeploymentGeneric, message, err).
 		WithModule("deployer").
 		WithOperation(operation)
 	if metadata != nil {

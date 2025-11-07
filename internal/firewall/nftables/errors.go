@@ -27,7 +27,7 @@ func wrapFirewallError(err error, operation, message string, metadata apperrors.
 }
 
 func newFirewallError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.FirewallError(apperrors.CodeFirewallGeneric, message, err).
+	appErr := apperrors.New(apperrors.ErrCategoryFirewall, apperrors.CodeFirewallGeneric, message, err).
 		WithModule("firewall.nftables").
 		WithOperation(operation)
 	if metadata != nil {
