@@ -273,7 +273,7 @@ func ensureAcmeInstalled() error {
 		return err
 	}
 
-	return nil
+	return ensureAcmeBinaryPresent()
 }
 
 func downloadAcmeInstaller() (string, error) {
@@ -358,7 +358,16 @@ func installAcmeScript(installerPath string) error {
 		)
 	}
 
-	cmd := exec.Command("sh", installerPath, "--install", "--nocron", "--noprofile")
+	cmd := exec.Command(
+		"sh",
+		installerPath,
+		"--install",
+		"--nocron",
+		"--noprofile",
+		"--home", acmeHomeDir,
+		"--config-home", acmeHomeDir,
+		"--cert-home", certificatesOutputDir,
+	)
 	cmd.Env = baseAcmeEnv()
 
 	var stderr bytes.Buffer
@@ -379,6 +388,40 @@ func installAcmeScript(installerPath string) error {
 	}
 
 	return nil
+}
+
+func ensureAcmeBinaryPresent() error {
+	targetPath := filepath.Join(acmeHomeDir, acmeScriptName)
+	info, err := os.Stat(targetPath)
+	if err == nil {
+		if info.Mode()&0o111 == 0 {
+			if err := os.Chmod(targetPath, info.Mode()|0o111); err != nil {
+				return newConfiguratorError(
+					"configurator.ensureAcmeBinaryPresent",
+					"failed to set executable bit on acme.sh",
+					err,
+					apperrors.Metadata{"path": targetPath},
+				)
+			}
+		}
+		return nil
+	}
+
+	if os.IsNotExist(err) {
+		return newConfiguratorError(
+			"configurator.ensureAcmeBinaryPresent",
+			"acme.sh executable missing after installation",
+			err,
+			apperrors.Metadata{"expected_path": targetPath},
+		)
+	}
+
+	return newConfiguratorError(
+		"configurator.ensureAcmeBinaryPresent",
+		"failed to access acme.sh executable",
+		err,
+		apperrors.Metadata{"path": targetPath},
+	)
 }
 
 func issueCertificateStandalone(domain string) error {

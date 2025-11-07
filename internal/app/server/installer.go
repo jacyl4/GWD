@@ -312,13 +312,8 @@ func (i *Installer) generateSSLCertificate(cfg *InstallConfig) error {
 
 	i.logger.Info("Generating SSL certificate for %s...", domain)
 	if err := configserver.EnsureACMECertificate(opts); err != nil {
-		return i.wrapError(
-			apperrors.ErrCategoryDeployment,
-			"installer.generateSSLCertificate",
-			"failed to generate SSL certificate",
-			err,
-			apperrors.Metadata{"domain": domain},
-		)
+		i.logger.Warn("Failed to generate SSL certificate for %s: %v", domain, err)
+		return nil
 	}
 
 	return nil
