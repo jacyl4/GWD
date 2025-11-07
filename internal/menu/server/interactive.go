@@ -21,7 +21,7 @@ import (
 // Menu is the interactive menu manager
 // Responsible for displaying menus, handling user input, and calling corresponding functional modules
 type Menu struct {
-	config         *system.SystemConfig
+	config         *system.Config
 	console        *ui.Console
 	logger         logger.Logger
 	printer        *ui.Printer
@@ -29,7 +29,7 @@ type Menu struct {
 }
 
 // NewMenu creates a new menu manager instance
-func NewMenu(cfg *system.SystemConfig, console *ui.Console) *Menu {
+func NewMenu(cfg *system.Config, console *ui.Console) *Menu {
 	var log logger.Logger
 	if console != nil {
 		log = console.Logger()

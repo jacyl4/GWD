@@ -8,6 +8,19 @@ import (
 	apperrors "GWD/internal/errors"
 )
 
+const (
+	VirtTypePhysical  = "physical"
+	VirtTypeContainer = "container"
+	VirtTypeVM        = "vm"
+	VirtTypeUnknown   = "unknown"
+)
+
+var containerTypes = []string{
+	"docker", "podman",
+	"lxc", "systemd-nspawn",
+	"lxc-libvirt", "openvz", "proot", "pouch",
+}
+
 func detectArchitecture() (string, error) {
 	output, err := exec.Command("dpkg", "--print-architecture").Output()
 	if err != nil {
@@ -34,23 +47,22 @@ func detectArchitecture() (string, error) {
 	}
 }
 
-func detectVirtualization() (string, error) {
+func DetectVirtualization() string {
 	output, err := exec.Command("systemd-detect-virt").Output()
 	if err != nil {
-		return "physical", nil
+		return VirtTypeUnknown
 	}
 
 	virt := strings.TrimSpace(string(output))
-	containerTypes := []string{
-		"openvz", "lxc", "lxc-libvirt", "systemd-nspawn",
-		"docker", "podman", "proot", "pouch",
+	if virt == "none" {
+		return VirtTypePhysical
 	}
 
 	for _, containerType := range containerTypes {
 		if virt == containerType {
-			return "container", nil
+			return VirtTypeContainer
 		}
 	}
 
-	return "vm", nil
+	return VirtTypeVM
 }

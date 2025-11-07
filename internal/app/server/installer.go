@@ -17,7 +17,7 @@ import (
 )
 
 type Installer struct {
-	sysConfig *system.SystemConfig
+	sysConfig *system.Config
 	console   *ui.Console
 	logger    logger.Logger
 
@@ -33,7 +33,7 @@ type Installer struct {
 // NewInstaller creates a new Installer instance. Package manager is constructed here
 // to keep server wiring minimal.
 func NewInstaller(
-	cfg *system.SystemConfig,
+	cfg *system.Config,
 	console *ui.Console,
 	repo *serverdownloader.Downloader,
 	validator *EnvironmentValidator,

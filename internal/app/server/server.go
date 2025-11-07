@@ -11,13 +11,13 @@ import (
 )
 
 type App struct {
-	config    *system.SystemConfig
+	config    *system.Config
 	console   *ui.Console
 	menu      *menu.Menu
 	installer *Installer
 }
 
-func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) (*App, error) {
+func NewServer(cfg *system.Config, log *logger.ColoredLogger) (*App, error) {
 	if log == nil {
 		log = logger.NewColoredLogger()
 	}

@@ -1,9 +1,9 @@
 package system
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	apperrors "GWD/internal/errors"
 )
@@ -31,33 +31,47 @@ func LoadConfig() (*Config, error) {
 	}
 	cfg.Architecture = arch
 
-	virtType, err := detectVirtualization()
-	if err != nil {
-		return nil, newSystemError("system.LoadConfig.detectVirtualization", "virtualization detection failed", err, nil)
-	}
-	cfg.VirtType = virtType
+	cfg.VirtType = DetectVirtualization()
 
 	return cfg, nil
 }
 
 // Validate ensures working directories exist and required commands are present.
 func (c *Config) Validate() error {
+	return c.Setup()
+}
+
+// Setup ensures required directories are present and expected commands exist.
+func (c *Config) Setup() error {
+	if err := c.EnsureDirectories(); err != nil {
+		return err
+	}
+	return c.ValidateCommands()
+}
+
+// EnsureDirectories creates the working and temporary directories when absent.
+func (c *Config) EnsureDirectories() error {
 	if err := os.MkdirAll(c.WorkingDir, 0o755); err != nil {
-		return newSystemError("system.Config.Validate", "failed to create working directory", err, apperrors.Metadata{
+		return newSystemError("system.Config.EnsureDirectories", "failed to create working directory", err, apperrors.Metadata{
 			"path": c.WorkingDir,
 		})
 	}
 
 	if err := os.MkdirAll(c.TmpDir, 0o755); err != nil {
-		return newSystemError("system.Config.Validate", "failed to create temporary directory", err, apperrors.Metadata{
+		return newSystemError("system.Config.EnsureDirectories", "failed to create temporary directory", err, apperrors.Metadata{
 			"path": c.TmpDir,
 		})
 	}
 
+	return nil
+}
+
+// ValidateCommands verifies required system commands are available on PATH.
+func (c *Config) ValidateCommands() error {
 	requiredCommands := []string{"apt", "wget", "curl", "systemctl"}
 	for _, cmd := range requiredCommands {
 		if _, err := exec.LookPath(cmd); err != nil {
-			return newSystemError("system.Config.Validate", "missing required system command", err, apperrors.Metadata{
+			return newSystemError("system.Config.ValidateCommands", "missing required system command", err, apperrors.Metadata{
 				"command": cmd,
 			})
 		}
@@ -68,48 +82,22 @@ func (c *Config) Validate() error {
 
 // GetRepoDir returns the local repository directory used by installers.
 func (c *Config) GetRepoDir() string {
-	return fmt.Sprintf("%s/.repo", c.WorkingDir)
+	return filepath.Join(c.WorkingDir, ".repo")
 }
 
 // GetLogDir returns the directory where runtime logs are stored.
 func (c *Config) GetLogDir() string {
-	return fmt.Sprintf("%s/logs", c.WorkingDir)
-}
-
-// IsSupportedArchitecture reports whether the detected architecture is supported.
-func (c *Config) IsSupportedArchitecture() bool {
-	return c.Architecture == "amd64" || c.Architecture == "arm64"
+	return filepath.Join(c.WorkingDir, "logs")
 }
 
 // IsContainer reports whether the environment is containerized.
 func (c *Config) IsContainer() bool {
-	return c.VirtType == "container"
-}
-
-// GetTempFilePath returns an absolute path inside the configured temporary directory.
-func (c *Config) GetTempFilePath(name string) string {
-	return fmt.Sprintf("%s/%s", c.TmpDir, name)
-}
-
-// GetTempDirPath returns an absolute directory path inside the configured temp directory.
-func (c *Config) GetTempDirPath(name string) string {
-	return fmt.Sprintf("%s/%s", c.TmpDir, name)
-}
-
-// SystemConfig is kept for backward compatibility with existing call sites.
-type SystemConfig = Config
-
-// LoadSystemConfig preserves the previous constructor name.
-func LoadSystemConfig() (*SystemConfig, error) {
-	return LoadConfig()
+	return c.VirtType == VirtTypeContainer
 }
 
 func newSystemError(operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	appErr := apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, message, err).
+	return apperrors.New(apperrors.ErrCategorySystem, apperrors.CodeSystemGeneric, message, err).
 		WithModule("system").
-		WithOperation(operation)
-	if metadata != nil {
-		appErr.WithFields(metadata)
-	}
-	return appErr
+		WithOperation(operation).
+		WithFields(metadata)
 }

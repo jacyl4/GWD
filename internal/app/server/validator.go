@@ -21,12 +21,12 @@ type validation struct {
 
 // EnvironmentValidator encapsulates host validation logic.
 type EnvironmentValidator struct {
-	config *system.SystemConfig
+	config *system.Config
 	logger logger.Logger
 }
 
 // NewEnvironmentValidator constructs a validator instance.
-func NewEnvironmentValidator(cfg *system.SystemConfig, log logger.Logger) *EnvironmentValidator {
+func NewEnvironmentValidator(cfg *system.Config, log logger.Logger) *EnvironmentValidator {
 	return &EnvironmentValidator{
 		config: cfg,
 		logger: log,
@@ -90,17 +90,18 @@ func (v *EnvironmentValidator) validateOperatingSystem() error {
 }
 
 func (v *EnvironmentValidator) validateArchitecture() error {
-	if v.config.IsSupportedArchitecture() {
+	switch v.config.Architecture {
+	case "amd64", "arm64":
 		return nil
+	default:
+		return v.wrapError(
+			apperrors.ErrCategoryValidation,
+			"validator.validateArchitecture",
+			"unsupported system architecture",
+			nil,
+			apperrors.Metadata{"architecture": v.config.Architecture},
+		)
 	}
-
-	return v.wrapError(
-		apperrors.ErrCategoryValidation,
-		"validator.validateArchitecture",
-		"unsupported system architecture",
-		nil,
-		apperrors.Metadata{"architecture": v.config.Architecture},
-	)
 }
 
 func (v *EnvironmentValidator) validateNetworkConnectivity() error {

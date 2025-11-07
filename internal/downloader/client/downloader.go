@@ -20,13 +20,13 @@ var clientExtraConfig []byte
 // Downloader handles client-side asset downloads.
 type Downloader struct {
 	repo    *core.Repository
-	cfg     *system.SystemConfig
+	cfg     *system.Config
 	console *ui.Console
 	logger  logger.Logger
 }
 
 // New constructs a client downloader configured with base and client-specific components.
-func New(cfg *system.SystemConfig, console *ui.Console) (*Downloader, error) {
+func New(cfg *system.Config, console *ui.Console) (*Downloader, error) {
 	var log logger.Logger
 	if console != nil {
 		log = console.Logger()

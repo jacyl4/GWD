@@ -11,14 +11,9 @@ import (
 	"time"
 
 	apperrors "GWD/internal/errors"
+	"GWD/internal/system"
 	"golang.org/x/sys/unix"
 )
-
-var containerTypes = []string{
-	"docker", "podman",
-	"lxc", "systemd-nspawn",
-	"lxc-libvirt", "openvz", "proot", "pouch",
-}
 
 const (
 	// HwClockSynced indicates the hardware clock was successfully synchronized.
@@ -198,7 +193,7 @@ func canSyncHardwareClock() (bool, string, error) {
 		return false, "hwclock command not available", nil
 	}
 
-	if detectVirtualization() == "container" {
+	if system.DetectVirtualization() == system.VirtTypeContainer {
 		return false, "hardware clock not accessible inside containers", nil
 	}
 
@@ -207,27 +202,6 @@ func canSyncHardwareClock() (bool, string, error) {
 	}
 
 	return true, "", nil
-}
-
-func detectVirtualization() string {
-	cmd := exec.Command("systemd-detect-virt")
-	output, err := cmd.Output()
-	if err != nil {
-		return "unknown"
-	}
-
-	virt := strings.TrimSpace(string(output))
-	if virt == "none" {
-		return "physical"
-	}
-
-	for _, ct := range containerTypes {
-		if virt == ct {
-			return "container"
-		}
-	}
-
-	return "vm"
 }
 
 func rtcDeviceExists() bool {

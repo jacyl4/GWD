@@ -19,7 +19,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := system.LoadSystemConfig()
+	cfg, err := system.LoadConfig()
 	if err != nil {
 		log.Error("System detection failed: %v", err)
 		os.Exit(1)
