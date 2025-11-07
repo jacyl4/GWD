@@ -1,8 +1,10 @@
 package server
 
 import (
+	"archive/zip"
 	"bytes"
 	_ "embed"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,14 +14,8 @@ import (
 )
 
 const (
-	nginxConfigDir  = "/etc/nginx"
-	nginxConfDDir   = "/etc/nginx/conf.d"
-	nginxStreamDir  = "/etc/nginx/stream.d"
-	sslDirectory    = "/var/www/ssl"
-	defaultCertPath = "/var/www/ssl/de_GWD.cer"
-	defaultKeyPath  = "/var/www/ssl/de_GWD.key"
-	defaultDHParam  = "/var/www/ssl/dhparam.pem"
-	defaultWSPath   = "/ws"
+	nginxConfigRoot   = "/etc/nginx"
+	nginxConfigZipSrc = "/opt/GWD/.repo/nginxConf.zip"
 )
 
 //go:embed templates_nginx/redirect.conf.tmpl
@@ -38,6 +34,7 @@ var nginxDefaultTemplate string
 type NginxOptions struct {
 	Port        int
 	Domain      string
+	ConfigDir   string
 	WSPath      string
 	CertFile    string
 	KeyFile     string
@@ -50,7 +47,7 @@ func EnsureNginxConfig(opts NginxOptions) error {
 		return err
 	}
 
-	if err := createNginxDirectories(); err != nil {
+	if err := extractNginxConfigArchive(); err != nil {
 		return err
 	}
 
@@ -62,25 +59,25 @@ func EnsureNginxConfig(opts NginxOptions) error {
 	}{
 		{
 			name:      "HTTP redirect",
-			path:      filepath.Join(nginxConfDDir, "80.conf"),
+			path:      filepath.Join(opts.ConfigDir, "80.conf"),
 			template:  nginxRedirectTemplate,
 			condition: opts.Port == 443,
 		},
 		{
 			name:      "HSTS headers",
-			path:      filepath.Join(nginxConfDDir, ".HSTS"),
+			path:      filepath.Join(opts.ConfigDir, ".HSTS"),
 			template:  nginxHSTSTemplate,
 			condition: true,
 		},
 		{
 			name:      "SSL certificates",
-			path:      filepath.Join(nginxConfDDir, ".ssl_certs"),
+			path:      filepath.Join(opts.ConfigDir, ".ssl_certs"),
 			template:  nginxSSLCertsTemplate,
 			condition: true,
 		},
 		{
 			name:      "default server",
-			path:      filepath.Join(nginxConfDDir, "default.conf"),
+			path:      filepath.Join(opts.ConfigDir, "default.conf"),
 			template:  nginxDefaultTemplate,
 			condition: true,
 		},
@@ -142,49 +139,54 @@ func validateNginxOptions(opts *NginxOptions) error {
 		)
 	}
 
-	if strings.TrimSpace(opts.WSPath) == "" {
-		opts.WSPath = defaultWSPath
+	opts.WSPath = strings.TrimSpace(opts.WSPath)
+	if opts.WSPath == "" {
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"websocket path is required",
+			nil,
+			nil,
+		)
 	}
 
+	opts.ConfigDir = strings.TrimSpace(opts.ConfigDir)
+	if opts.ConfigDir == "" {
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"configuration directory is required",
+			nil,
+			nil,
+		)
+	}
+
+	opts.CertFile = strings.TrimSpace(opts.CertFile)
 	if opts.CertFile == "" {
-		opts.CertFile = defaultCertPath
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"certificate file path is required",
+			nil,
+			nil,
+		)
 	}
 
+	opts.KeyFile = strings.TrimSpace(opts.KeyFile)
 	if opts.KeyFile == "" {
-		opts.KeyFile = defaultKeyPath
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"key file path is required",
+			nil,
+			nil,
+		)
 	}
 
+	opts.DHParamFile = strings.TrimSpace(opts.DHParamFile)
 	if opts.DHParamFile == "" {
-		opts.DHParamFile = defaultDHParam
-	}
-
-	return nil
-}
-
-func createNginxDirectories() error {
-	directories := []string{
-		"/var/www/html",
-		sslDirectory,
-		nginxConfigDir,
-		nginxConfDDir,
-		nginxStreamDir,
-		"/var/log/nginx",
-		"/var/cache/nginx/client_temp",
-		"/var/cache/nginx/proxy_temp",
-		"/var/cache/nginx/fastcgi_temp",
-		"/var/cache/nginx/scgi_temp",
-		"/var/cache/nginx/uwsgi_temp",
-	}
-
-	for _, dir := range directories {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return newConfiguratorError(
-				"configurator.createNginxDirectories",
-				"failed to create nginx directory",
-				err,
-				apperrors.Metadata{"path": dir},
-			)
-		}
+		return newConfiguratorError(
+			"configurator.validateNginxOptions",
+			"DH parameters file path is required",
+			nil,
+			nil,
+		)
 	}
 
 	return nil
@@ -202,4 +204,97 @@ func renderNginxTemplate(tmpl string, data NginxOptions) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func extractNginxConfigArchive() error {
+	reader, err := zip.OpenReader(nginxConfigZipSrc)
+	if err != nil {
+		return newConfiguratorError(
+			"configurator.extractNginxConfigArchive",
+			"failed to open nginx configuration archive",
+			err,
+			apperrors.Metadata{"archive": nginxConfigZipSrc},
+		)
+	}
+	defer reader.Close()
+
+	root := filepath.Clean(nginxConfigRoot) + string(os.PathSeparator)
+
+	for _, file := range reader.File {
+		targetPath := filepath.Join(nginxConfigRoot, file.Name)
+		cleanTarget := filepath.Clean(targetPath)
+		if !strings.HasPrefix(cleanTarget, root) {
+			return newConfiguratorError(
+				"configurator.extractNginxConfigArchive",
+				"archive entry escapes nginx directory",
+				nil,
+				apperrors.Metadata{"entry": file.Name},
+			)
+		}
+
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(cleanTarget, 0o755); err != nil {
+				return newConfiguratorError(
+					"configurator.extractNginxConfigArchive",
+					"failed to create nginx configuration directory",
+					err,
+					apperrors.Metadata{"path": cleanTarget},
+				)
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
+			return newConfiguratorError(
+				"configurator.extractNginxConfigArchive",
+				"failed to create parent directory for nginx config file",
+				err,
+				apperrors.Metadata{"path": filepath.Dir(cleanTarget)},
+			)
+		}
+
+		srcFile, err := file.Open()
+		if err != nil {
+			return newConfiguratorError(
+				"configurator.extractNginxConfigArchive",
+				"failed to open file from nginx configuration archive",
+				err,
+				apperrors.Metadata{"entry": file.Name},
+			)
+		}
+
+		targetFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, file.Mode())
+		if err != nil {
+			_ = srcFile.Close()
+			return newConfiguratorError(
+				"configurator.extractNginxConfigArchive",
+				"failed to create nginx configuration file",
+				err,
+				apperrors.Metadata{"path": cleanTarget},
+			)
+		}
+
+		if _, err := io.Copy(targetFile, srcFile); err != nil {
+			_ = srcFile.Close()
+			_ = targetFile.Close()
+			return newConfiguratorError(
+				"configurator.extractNginxConfigArchive",
+				"failed to copy nginx configuration file",
+				err,
+				apperrors.Metadata{"path": cleanTarget},
+			)
+		}
+
+		_ = srcFile.Close()
+		if err := targetFile.Close(); err != nil {
+			return newConfiguratorError(
+				"configurator.extractNginxConfigArchive",
+				"failed to finalize nginx configuration file",
+				err,
+				apperrors.Metadata{"path": cleanTarget},
+			)
+		}
+	}
+
+	return nil
 }

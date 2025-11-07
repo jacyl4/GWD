@@ -53,6 +53,11 @@ var RequiredPackages = []string{
 	"libmimalloc3",
 }
 
+const (
+	mimallocLibSource = "/lib/x86_64-linux-gnu/libmimalloc.so.3"
+	mimallocLibTarget = "/lib/x86_64-linux-gnu/libmimalloc.so.2"
+)
+
 // PackagesToRemove lists conflicting packages that should be purged.
 var PackagesToRemove = []string{
 	"haveged",
@@ -77,16 +82,17 @@ func (m *Manager) InstallDependencies() error {
 		return dpkgError("dpkg.getMissingPackages", "failed to determine missing packages", err, nil)
 	}
 
-	if len(packagesToInstall) == 0 {
-		return nil
+	if len(packagesToInstall) > 0 {
+		if err := m.installPackages(packagesToInstall); err != nil {
+			return dpkgError("dpkg.installPackages", "failed to install packages", err, apperrors.Metadata{
+				"packages": strings.Join(packagesToInstall, ","),
+			})
+		}
 	}
 
-	if err := m.installPackages(packagesToInstall); err != nil {
-		return dpkgError("dpkg.installPackages", "failed to install packages", err, apperrors.Metadata{
-			"packages": strings.Join(packagesToInstall, ","),
-		})
+	if err := m.ensureMimallocCompatLib(); err != nil {
+		return err
 	}
-
 	return nil
 }
 
@@ -213,4 +219,19 @@ func dpkgError(operation, message string, err error, metadata apperrors.Metadata
 		WithModule("pkgmgr.dpkg").
 		WithOperation(operation).
 		WithFields(metadata)
+}
+
+func (m *Manager) ensureMimallocCompatLib() error {
+	if err := m.exec.Run("cp", mimallocLibSource, mimallocLibTarget); err != nil {
+		return dpkgError(
+			"dpkg.ensureMimallocCompatLib",
+			"failed to copy mimalloc compatibility library",
+			err,
+			apperrors.Metadata{
+				"source": mimallocLibSource,
+				"target": mimallocLibTarget,
+			},
+		)
+	}
+	return nil
 }

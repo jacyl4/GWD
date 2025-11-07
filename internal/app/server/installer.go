@@ -37,7 +37,13 @@ type Installer struct {
 	tcsss      deployer.Component
 }
 
-const defaultWebSocketPath = "/ws"
+const (
+	defaultWebSocketPath = "/ws"
+	defaultNginxConfDir  = "/etc/nginx/conf.d"
+	defaultCertPath      = "/var/www/ssl/de_GWD.cer"
+	defaultKeyPath       = "/var/www/ssl/de_GWD.key"
+	defaultDHParamPath   = "/var/www/ssl/dhparam.pem"
+)
 
 // NewInstaller creates a new Installer instance. Package manager is constructed here
 // to keep server wiring minimal.
@@ -141,31 +147,101 @@ func (i *Installer) InstallGWD(cfg *InstallConfig) error {
 
 // createWorkingDirectories creates the working directories required by GWD
 func (i *Installer) createWorkingDirectories() error {
-	directories := []struct {
+	const dirPerm os.FileMode = 0o755
+
+	type dirSpec struct {
 		path string
-		perm os.FileMode
 		desc string
-	}{
-		{i.sysConfig.WorkingDir, 0755, "Main working directory"},
-		{i.sysConfig.GetRepoDir(), 0755, "Repository files directory"},
-		{i.sysConfig.GetLogDir(), 0755, "Log directory"},
-		{"/var/www/ssl", 0755, "SSL certificate directory"},
-		{"/etc/nginx/conf.d", 0755, "Nginx configuration directory"},
-		{"/etc/tcsss", 0755, "TCSSS configuration directory"},
-		{filepath.Join(i.sysConfig.GetRepoDir(), "templates_tcsss"), 0755, "TCSSS templates directory"},
 	}
 
-	for _, dir := range directories {
-		if err := os.MkdirAll(dir.path, dir.perm); err != nil {
+	seen := make(map[string]struct{})
+
+	addDir := func(path, desc string) error {
+		if path == "" {
+			return nil
+		}
+		cleanPath := filepath.Clean(path)
+		if _, exists := seen[cleanPath]; exists {
+			return nil
+		}
+		seen[cleanPath] = struct{}{}
+
+		if err := os.MkdirAll(cleanPath, dirPerm); err != nil {
 			return i.wrapError(
 				apperrors.ErrCategorySystem,
 				"installer.createWorkingDirectories",
-				fmt.Sprintf("failed to create %s", dir.desc),
+				fmt.Sprintf("failed to create %s", desc),
 				err,
-				apperrors.Metadata{"path": dir.path},
+				apperrors.Metadata{"path": cleanPath},
 			)
 		}
-		i.logger.Debug("Created directory: %s", dir.path)
+		i.logger.Debug("Created directory: %s", cleanPath)
+		return nil
+	}
+
+	addDirGroup := func(basePath, baseDesc string, children ...dirSpec) error {
+		if err := addDir(basePath, baseDesc); err != nil {
+			return err
+		}
+		for _, child := range children {
+			childPath := child.path
+			if !filepath.IsAbs(childPath) {
+				childPath = filepath.Join(basePath, childPath)
+			}
+			if err := addDir(childPath, child.desc); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := addDir(i.sysConfig.WorkingDir, "Main working directory"); err != nil {
+		return err
+	}
+	if err := addDirGroup(
+		i.sysConfig.GetRepoDir(),
+		"Repository files directory",
+		dirSpec{path: "templates_tcsss", desc: "TCSSS templates directory"},
+	); err != nil {
+		return err
+	}
+	if err := addDir(i.sysConfig.GetLogDir(), "Log directory"); err != nil {
+		return err
+	}
+	if err := addDir("/var/www/html", "Web root directory"); err != nil {
+		return err
+	}
+	if err := addDirGroup(
+		"/var/www/ssl",
+		"SSL certificate directory",
+		dirSpec{path: ".acme.sh", desc: "ACME working directory"},
+	); err != nil {
+		return err
+	}
+	if err := addDirGroup(
+		"/etc/nginx",
+		"Nginx configuration root",
+		dirSpec{path: "conf.d", desc: "Nginx configuration directory"},
+		dirSpec{path: "stream.d", desc: "Nginx stream configuration directory"},
+	); err != nil {
+		return err
+	}
+	if err := addDir("/var/log/nginx", "Nginx log directory"); err != nil {
+		return err
+	}
+	if err := addDirGroup(
+		"/var/cache/nginx",
+		"Nginx cache root",
+		dirSpec{path: "client_temp", desc: "Nginx client cache directory"},
+		dirSpec{path: "proxy_temp", desc: "Nginx proxy cache directory"},
+		dirSpec{path: "fastcgi_temp", desc: "Nginx FastCGI cache directory"},
+		dirSpec{path: "scgi_temp", desc: "Nginx SCGI cache directory"},
+		dirSpec{path: "uwsgi_temp", desc: "Nginx uWSGI cache directory"},
+	); err != nil {
+		return err
+	}
+	if err := addDir("/etc/tcsss", "TCSSS configuration directory"); err != nil {
+		return err
 	}
 
 	return nil
@@ -517,9 +593,13 @@ func (i *Installer) configureNginxWeb() error {
 	i.logger.Info("Configuring Nginx web service for %s...", domain)
 
 	options := configserver.NginxOptions{
-		Port:   cfg.Port,
-		Domain: domain,
-		WSPath: defaultWebSocketPath,
+		Port:        cfg.Port,
+		Domain:      domain,
+		ConfigDir:   defaultNginxConfDir,
+		WSPath:      defaultWebSocketPath,
+		CertFile:    defaultCertPath,
+		KeyFile:     defaultKeyPath,
+		DHParamFile: defaultDHParamPath,
 	}
 
 	if err := configserver.EnsureNginxConfig(options); err != nil {
