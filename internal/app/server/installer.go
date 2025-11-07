@@ -18,11 +18,13 @@ import (
 	menu "GWD/internal/menu/server"
 	"GWD/internal/pkgmgr/dpkg"
 	"GWD/internal/system"
+	ui "GWD/internal/ui/server"
 )
 
 type Installer struct {
 	config     *system.SystemConfig
-	logger     *logger.ColoredLogger
+	console    *ui.Console
+	logger     logger.Logger
 	pkgManager *dpkg.Manager
 	repository *serverdownloader.Downloader
 	doh        deployer.Component
@@ -33,9 +35,21 @@ type Installer struct {
 
 // NewInstaller creates a new Installer instance. Package manager is constructed here
 // to keep server wiring minimal.
-func NewInstaller(cfg *system.SystemConfig, log *logger.ColoredLogger, repo *serverdownloader.Downloader) *Installer {
+func NewInstaller(cfg *system.SystemConfig, console *ui.Console, repo *serverdownloader.Downloader) *Installer {
+	var log logger.Logger
+	if console != nil {
+		log = console.Logger()
+	}
+	if log == nil {
+		log = logger.NewStandardLogger()
+	}
+	if console == nil {
+		console = ui.NewConsole(log)
+	}
+
 	return &Installer{
 		config:     cfg,
+		console:    console,
 		logger:     log,
 		pkgManager: dpkg.NewManager(nil),
 		repository: repo,
@@ -63,7 +77,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 	}
 
 	for _, step := range allInstallSetupSteps {
-		i.logger.Progress(step.name)
+		i.console.StartProgress(step.name)
 		if err := step.fn(); err != nil {
 			appErr := normalizeInstallerError(err, step.category, step.operation, fmt.Sprintf("%s failed", step.name), apperrors.Metadata{
 				"step": step.name,
@@ -71,7 +85,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 			errorlog.Error(ctx, i.logger, fmt.Sprintf("%s failed", step.name), appErr)
 			return appErr
 		}
-		i.logger.ProgressDone(step.name)
+		i.console.StopProgress(step.name)
 	}
 
 	installSteps := []struct {
@@ -97,7 +111,7 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 	}
 
 	for _, step := range installSteps {
-		i.logger.Progress(step.name)
+		i.console.StartProgress(step.name)
 		if err := step.fn(); err != nil {
 			appErr := normalizeInstallerError(err, step.category, step.operation, fmt.Sprintf("%s failed", step.name), apperrors.Metadata{
 				"step": step.name,
@@ -105,10 +119,10 @@ func (i *Installer) InstallGWD(domainConfig *menu.DomainInfo) error {
 			errorlog.Error(ctx, i.logger, fmt.Sprintf("%s failed", step.name), appErr)
 			return appErr
 		}
-		i.logger.ProgressDone(step.name)
+		i.console.StopProgress(step.name)
 	}
 
-	i.logger.Success("GWD installation completed")
+	i.console.Success("GWD installation completed")
 	return nil
 }
 

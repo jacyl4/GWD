@@ -7,8 +7,14 @@ import (
 	"time"
 )
 
-// ProgressSpinner renders a spinner-style progress indicator.
-type ProgressSpinner struct {
+// Progress describes progress indicators that can be started and stopped.
+type Progress interface {
+	Start(operation string)
+	Stop(operation string)
+}
+
+// SpinnerProgress renders a spinner-style progress indicator.
+type SpinnerProgress struct {
 	mu       sync.Mutex
 	output   io.Writer
 	spinner  []string
@@ -17,13 +23,13 @@ type ProgressSpinner struct {
 	stopOnce sync.Once
 }
 
-// NewProgressSpinner creates a progress spinner writing to the provided output.
-func NewProgressSpinner(output io.Writer) *ProgressSpinner {
+// NewSpinnerProgress creates a progress spinner writing to the provided output.
+func NewSpinnerProgress(output io.Writer) *SpinnerProgress {
 	if output == nil {
 		output = io.Discard
 	}
 
-	return &ProgressSpinner{
+	return &SpinnerProgress{
 		output:  output,
 		spinner: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 		stopCh:  make(chan struct{}),
@@ -31,7 +37,7 @@ func NewProgressSpinner(output io.Writer) *ProgressSpinner {
 }
 
 // Start begins rendering the progress spinner with the specified message.
-func (p *ProgressSpinner) Start(message string) {
+func (p *SpinnerProgress) Start(message string) {
 	go func() {
 		ticker := time.NewTicker(120 * time.Millisecond)
 		defer ticker.Stop()
@@ -52,7 +58,7 @@ func (p *ProgressSpinner) Start(message string) {
 }
 
 // Stop terminates the spinner and prints the final message.
-func (p *ProgressSpinner) Stop(message string) {
+func (p *SpinnerProgress) Stop(message string) {
 	p.stopOnce.Do(func() {
 		close(p.stopCh)
 	})

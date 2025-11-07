@@ -11,7 +11,7 @@ import (
 
 	"GWD/internal/logger"
 	"GWD/internal/system"
-	"GWD/internal/ui"
+	ui "GWD/internal/ui/server"
 
 	"github.com/manifoldco/promptui"
 	runewidth "github.com/mattn/go-runewidth"
@@ -22,15 +22,25 @@ import (
 // Responsible for displaying menus, handling user input, and calling corresponding functional modules
 type Menu struct {
 	config         *system.SystemConfig
-	logger         *logger.ColoredLogger
+	console        *ui.Console
+	logger         logger.Logger
 	printer        *ui.Printer
 	installHandler func(*DomainInfo) error
 }
 
 // NewMenu creates a new menu manager instance
-func NewMenu(cfg *system.SystemConfig, log *logger.ColoredLogger) *Menu {
+func NewMenu(cfg *system.SystemConfig, console *ui.Console) *Menu {
+	var log logger.Logger
+	if console != nil {
+		log = console.Logger()
+	}
+	if log == nil {
+		log = logger.NewStandardLogger()
+	}
+
 	return &Menu{
 		config:  cfg,
+		console: console,
 		logger:  log,
 		printer: ui.NewPrinter(),
 	}
@@ -295,12 +305,20 @@ func (m *Menu) displayEnvironmentInfo(sslExpireDate string) {
 
 	// Display special feature status
 	if m.isWireGuardEnabled() {
-		m.logger.White("🟣 [Enabled] Cloudflare Wireguard Upstream (WARP)")
+		m.writeLine("🟣 [Enabled] Cloudflare Wireguard Upstream (WARP)")
 	}
 
 	if m.isHAProxyEnabled() {
-		m.logger.White("🟣 [Enabled] HAProxy TCP Port Forwarding")
+		m.writeLine("🟣 [Enabled] HAProxy TCP Port Forwarding")
 	}
+}
+
+func (m *Menu) writeLine(format string, args ...interface{}) {
+	if m.console != nil {
+		m.console.WriteLine(format, args...)
+		return
+	}
+	fmt.Printf(format+"\n", args...)
 }
 
 // Handler functions - Handler functions for each menu option

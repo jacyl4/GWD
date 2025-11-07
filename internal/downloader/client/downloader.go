@@ -11,6 +11,7 @@ import (
 	apperrors "GWD/internal/errors"
 	"GWD/internal/logger"
 	"GWD/internal/system"
+	ui "GWD/internal/ui/server"
 )
 
 //go:embed client-extra.yaml
@@ -18,13 +19,25 @@ var clientExtraConfig []byte
 
 // Downloader handles client-side asset downloads.
 type Downloader struct {
-	repo *core.Repository
-	cfg  *system.SystemConfig
-	log  logger.ProgressLogger
+	repo    *core.Repository
+	cfg     *system.SystemConfig
+	console *ui.Console
+	logger  logger.Logger
 }
 
 // New constructs a client downloader configured with base and client-specific components.
-func New(cfg *system.SystemConfig, log logger.ProgressLogger) (*Downloader, error) {
+func New(cfg *system.SystemConfig, console *ui.Console) (*Downloader, error) {
+	var log logger.Logger
+	if console != nil {
+		log = console.Logger()
+	}
+	if log == nil {
+		log = logger.NewStandardLogger()
+	}
+	if console == nil {
+		console = ui.NewConsole(log)
+	}
+
 	baseCfg, err := core.BaseConfig()
 	if err != nil {
 		return nil, apperrors.New(apperrors.ErrCategoryDependency, apperrors.CodeDependencyGeneric, "failed to load base download configuration", err).
@@ -56,15 +69,16 @@ func New(cfg *system.SystemConfig, log logger.ProgressLogger) (*Downloader, erro
 	}
 
 	return &Downloader{
-		repo: repo,
-		cfg:  cfg,
-		log:  log,
+		repo:    repo,
+		cfg:     cfg,
+		console: console,
+		logger:  log,
 	}, nil
 }
 
 // DownloadAll installs the client-side assets.
 func (d *Downloader) DownloadAll() error {
-	d.log.Progress("Checking repository files")
+	d.console.StartProgress("Checking repository files")
 
 	repoDir := d.cfg.GetRepoDir()
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
@@ -85,6 +99,6 @@ func (d *Downloader) DownloadAll() error {
 		return err
 	}
 
-	d.log.ProgressDone("Checking repository files")
+	d.console.StopProgress("Checking repository files")
 	return nil
 }

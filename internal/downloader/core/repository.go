@@ -229,7 +229,7 @@ func (r *Repository) downloadIfNeeded(ctx context.Context, target Target) error 
 		return err
 	}
 
-	r.logger.Success("%s downloaded successfully", target.Name)
+	r.logger.Info("%s downloaded successfully", target.Name)
 	return nil
 }
 

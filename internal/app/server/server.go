@@ -7,30 +7,33 @@ import (
 	"GWD/internal/logger"
 	menu "GWD/internal/menu/server"
 	"GWD/internal/system"
+	ui "GWD/internal/ui/server"
 )
 
 type App struct {
 	config    *system.SystemConfig
-	logger    *logger.ColoredLogger
+	console   *ui.Console
 	menu      *menu.Menu
 	installer *Installer
 }
 
 func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) (*App, error) {
-	repo, err := serverdownloader.New(cfg, log)
+	console := ui.NewConsole(log)
+
+	repo, err := serverdownloader.New(cfg, console)
 	if err != nil {
 		return nil, err
 	}
 
-	menuManager := menu.NewMenu(cfg, log)
+	menuManager := menu.NewMenu(cfg, console)
 
 	app := &App{
-		config: cfg,
-		logger: log,
-		menu:   menuManager,
+		config:  cfg,
+		console: console,
+		menu:    menuManager,
 	}
 
-	app.installer = NewInstaller(cfg, log, repo)
+	app.installer = NewInstaller(cfg, console, repo)
 	app.menu.SetInstallHandler(app.InstallGWD)
 
 	return app, nil

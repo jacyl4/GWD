@@ -81,11 +81,3 @@ func Error(err error) Field {
 func Any(key string, value interface{}) Field {
 	return Field{Key: key, Value: value}
 }
-
-// ProgressLogger exposes progress-aware helpers in addition to the core logger behaviour.
-type ProgressLogger interface {
-	Logger
-	Success(format string, args ...interface{})
-	Progress(operation string)
-	ProgressDone(operation string)
-}

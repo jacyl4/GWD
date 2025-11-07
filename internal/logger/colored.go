@@ -4,24 +4,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/fatih/color"
 	"golang.org/x/term"
 )
 
-var _ ProgressLogger = (*ColoredLogger)(nil)
-
 // ColoredLogger renders log messages using colours when supported by the output writer.
 type ColoredLogger struct {
 	*StandardLogger
-	colors   map[Level]*color.Color
-	progress struct {
-		sync.Mutex
-		active  *ProgressSpinner
-		message string
-	}
+	colors map[Level]*color.Color
 }
 
 // NewColoredLogger returns a logger configured for colourful terminal output when possible.
@@ -52,56 +44,6 @@ func NewColoredLogger(options ...Option) *ColoredLogger {
 		StandardLogger: std,
 		colors:         colors,
 	}
-}
-
-// Success logs a successful operation using the info level.
-func (l *ColoredLogger) Success(format string, args ...interface{}) {
-	message := fmt.Sprintf(format, args...)
-	l.StandardLogger.Info("✓ %s", message)
-}
-
-// Progress starts an animated progress indicator for the supplied operation.
-func (l *ColoredLogger) Progress(operation string) {
-	l.progress.Lock()
-	defer l.progress.Unlock()
-
-	if l.progress.active != nil {
-		l.progress.active.Stop(l.progress.message)
-	}
-
-	writer := l.output
-	if writer == nil {
-		writer = os.Stdout
-	}
-
-	progress := NewProgressSpinner(writer)
-	progress.Start(operation)
-	l.progress.active = progress
-	l.progress.message = operation
-}
-
-// ProgressDone stops the active progress indicator.
-func (l *ColoredLogger) ProgressDone(operation string) {
-	l.progress.Lock()
-	defer l.progress.Unlock()
-
-	if l.progress.active == nil {
-		l.StandardLogger.Info("%s completed", operation)
-		return
-	}
-
-	l.progress.active.Stop(operation)
-	l.progress.active = nil
-	l.progress.message = ""
-}
-
-// White prints plain text without level prefixes.
-func (l *ColoredLogger) White(format string, args ...interface{}) {
-	writer := l.output
-	if writer == nil {
-		writer = os.Stdout
-	}
-	fmt.Fprintf(writer, format+"\n", args...)
 }
 
 // ColoredFormatter renders log entries with coloured levels when enabled.
