@@ -11,7 +11,7 @@ import (
 	apperrors "GWD/internal/errors"
 	errorlog "GWD/internal/errors/logging"
 	"GWD/internal/logger"
-	"GWD/internal/pkgmgr/dpkg"
+	dpkg "GWD/internal/pkgmgr"
 	"GWD/internal/system"
 	ui "GWD/internal/ui/server"
 )
