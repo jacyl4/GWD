@@ -2,7 +2,6 @@ package server
 
 import (
 	"os"
-	"os/exec"
 
 	apperrors "GWD/internal/errors"
 )
@@ -98,31 +97,6 @@ func writeUnboundServiceUnit() error {
 			"failed to write unbound service file",
 			err,
 			apperrors.Metadata{"path": servicePath},
-		)
-	}
-
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		return newConfiguratorError(
-			"configurator.writeUnboundServiceUnit",
-			"failed to reload systemd daemon for unbound",
-			err,
-			apperrors.Metadata{"command": "systemctl daemon-reload"},
-		)
-	}
-	if err := exec.Command("systemctl", "enable", "unbound").Run(); err != nil {
-		return newConfiguratorError(
-			"configurator.writeUnboundServiceUnit",
-			"failed to enable unbound service",
-			err,
-			apperrors.Metadata{"command": "systemctl enable unbound"},
-		)
-	}
-	if err := exec.Command("systemctl", "restart", "unbound").Run(); err != nil {
-		return newConfiguratorError(
-			"configurator.writeUnboundServiceUnit",
-			"failed to restart unbound service",
-			err,
-			apperrors.Metadata{"command": "systemctl restart unbound"},
 		)
 	}
 	return nil

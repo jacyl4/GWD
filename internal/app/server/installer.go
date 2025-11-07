@@ -114,8 +114,8 @@ func (i *Installer) InstallGWD(cfg *InstallConfig) error {
 		{"Upgrade system packages", "installer.upgradeSystemPackages", apperrors.ErrCategoryDependency, i.pkgManager.UpgradeSystem},
 		{"Install system dependencies", "installer.installDependencies", apperrors.ErrCategoryDependency, i.pkgManager.InstallDependencies},
 		{"Set timezone to Asia/Shanghai", "installer.configureTimezone", apperrors.ErrCategorySystem, configserver.EnsureTimezoneShanghai},
-		{"Configure rng-tools and chrony", "installer.configureEntropyAndTime", apperrors.ErrCategorySystem, configserver.EnsureEntropyAndTimeConfigured},
-		{"Configure unbound", "installer.configureUnbound", apperrors.ErrCategorySystem, configserver.EnsureUnboundConfig},
+		{"Configure rng-tools and chrony", "installer.configureEntropyAndTime", apperrors.ErrCategorySystem, i.configureEntropyAndTime},
+		{"Configure unbound", "installer.configureUnbound", apperrors.ErrCategorySystem, i.configureUnbound},
 		{"Configure resolvconf", "installer.configureResolvconf", apperrors.ErrCategorySystem, configserver.EnsureResolvconfConfig},
 		{"Synchronize system time", "installer.syncTime", apperrors.ErrCategorySystem, i.syncSystemTime},
 		{"Download repository files", "installer.downloadRepository", apperrors.ErrCategoryDependency, i.repository.DownloadAll},
@@ -235,6 +235,47 @@ func (i *Installer) installVtrui() error {
 	return nil
 }
 
+func (i *Installer) configureEntropyAndTime() error {
+	i.logger.Info("Configuring rng-tools and chrony...")
+	if err := configserver.EnsureEntropyAndTimeConfigured(); err != nil {
+		return err
+	}
+
+	if err := i.ensureServiceEnabled(configserver.RngToolsServiceCandidates()); err != nil {
+		return err
+	}
+	if err := i.ensureServiceRestarted(configserver.RngToolsServiceCandidates()); err != nil {
+		return err
+	}
+	if err := i.ensureServiceEnabled(configserver.ChronyServiceCandidates()); err != nil {
+		return err
+	}
+	if err := i.ensureServiceRestarted(configserver.ChronyServiceCandidates()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (i *Installer) configureUnbound() error {
+	i.logger.Info("Configuring unbound service...")
+	if err := configserver.EnsureUnboundConfig(); err != nil {
+		return err
+	}
+
+	if err := i.systemctlDaemonReload(); err != nil {
+		return err
+	}
+	if err := i.systemctlEnable("unbound"); err != nil {
+		return err
+	}
+	if err := i.systemctlRestart("unbound"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (i *Installer) generateSSLCertificate(cfg *InstallConfig) error {
 	if cfg == nil || cfg.TLS == nil {
 		return i.wrapError(
@@ -332,6 +373,37 @@ func (i *Installer) startAndEnableService(serviceName string) error {
 
 	i.logger.Info("Service %s started successfully", serviceName)
 	return nil
+}
+
+func (i *Installer) ensureServiceEnabled(candidates []string) error {
+	return i.applyServiceAction(candidates, i.systemctlEnable, "enable")
+}
+
+func (i *Installer) ensureServiceRestarted(candidates []string) error {
+	return i.applyServiceAction(candidates, i.systemctlRestart, "restart")
+}
+
+func (i *Installer) applyServiceAction(candidates []string, action func(string) error, actionName string) error {
+	if len(candidates) == 0 {
+		return i.wrapError(
+			apperrors.ErrCategorySystem,
+			"installer.applyServiceAction",
+			"no service candidates provided",
+			nil,
+			apperrors.Metadata{"action": actionName},
+		)
+	}
+
+	var lastErr error
+	for _, svc := range candidates {
+		if err := action(svc); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	return lastErr
 }
 
 // systemctlDaemonReload reloads systemd daemon configuration.

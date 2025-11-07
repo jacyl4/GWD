@@ -3,7 +3,6 @@ package server
 import (
 	"os"
 	"os/exec"
-	"strings"
 
 	apperrors "GWD/internal/errors"
 )
@@ -53,12 +52,7 @@ makestep 1 3
 leapsectz right/UTC
 `
 
-var (
-	rngToolsServiceCandidates = []string{"rng-tools", "rng-tools-debian"}
-	chronyServiceCandidates   = []string{"chrony"}
-)
-
-// EnsureRngToolsConfigured writes rng-tools default configuration and restarts/enables the service
+// EnsureRngToolsConfigured writes rng-tools default configuration.
 func EnsureRngToolsConfigured() error {
 	if err := os.WriteFile(rngToolsDefaultPath, []byte(rngToolsDefaultContent), 0644); err != nil {
 		return newConfiguratorError(
@@ -68,17 +62,10 @@ func EnsureRngToolsConfigured() error {
 			apperrors.Metadata{"path": rngToolsDefaultPath},
 		)
 	}
-
-	if err := restartService(rngToolsServiceCandidates...); err != nil {
-		return err
-	}
-	if err := enableService(rngToolsServiceCandidates...); err != nil {
-		return err
-	}
 	return nil
 }
 
-// EnsureChronyConfigured writes chrony configuration and restarts/enables the service
+// EnsureChronyConfigured writes chrony configuration.
 func EnsureChronyConfigured() error {
 	if err := os.WriteFile(chronyConfPath, []byte(chronyConfContent), 0644); err != nil {
 		return newConfiguratorError(
@@ -87,13 +74,6 @@ func EnsureChronyConfigured() error {
 			err,
 			apperrors.Metadata{"path": chronyConfPath},
 		)
-	}
-
-	if err := restartService(chronyServiceCandidates...); err != nil {
-		return err
-	}
-	if err := enableService(chronyServiceCandidates...); err != nil {
-		return err
 	}
 	return nil
 }
@@ -109,6 +89,16 @@ func EnsureEntropyAndTimeConfigured() error {
 	return nil
 }
 
+// RngToolsServiceCandidates returns potential rng-tools service names for systemd management.
+func RngToolsServiceCandidates() []string {
+	return []string{"rng-tools", "rng-tools-debian"}
+}
+
+// ChronyServiceCandidates returns potential chrony service names for systemd management.
+func ChronyServiceCandidates() []string {
+	return []string{"chrony"}
+}
+
 // EnsureTimezoneShanghai sets system timezone to Asia/Shanghai via timedatectl
 func EnsureTimezoneShanghai() error {
 	if err := exec.Command("timedatectl", "set-timezone", "Asia/Shanghai").Run(); err != nil {
@@ -120,58 +110,4 @@ func EnsureTimezoneShanghai() error {
 		)
 	}
 	return nil
-}
-
-func restartService(candidates ...string) error {
-	if len(candidates) == 0 {
-		return newConfiguratorError(
-			"configurator.restartService",
-			"no service candidates provided for restart",
-			nil,
-			nil,
-		)
-	}
-
-	var lastErr error
-	for _, name := range candidates {
-		if err := exec.Command("systemctl", "restart", name).Run(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-	}
-
-	return newConfiguratorError(
-		"configurator.restartService",
-		"failed to restart service candidates",
-		lastErr,
-		apperrors.Metadata{"services": strings.Join(candidates, ",")},
-	)
-}
-
-func enableService(candidates ...string) error {
-	if len(candidates) == 0 {
-		return newConfiguratorError(
-			"configurator.enableService",
-			"no service candidates provided for enable",
-			nil,
-			nil,
-		)
-	}
-
-	var lastErr error
-	for _, name := range candidates {
-		if err := exec.Command("systemctl", "enable", name).Run(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-	}
-
-	return newConfiguratorError(
-		"configurator.enableService",
-		"failed to enable service candidates",
-		lastErr,
-		apperrors.Metadata{"services": strings.Join(candidates, ",")},
-	)
 }
