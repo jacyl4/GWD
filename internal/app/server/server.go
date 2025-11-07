@@ -18,7 +18,7 @@ type App struct {
 }
 
 func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) (*App, error) {
-	console := ui.NewConsole(log)
+	console := ui.NewConsole(log, nil)
 
 	repo, err := serverdownloader.New(cfg, console)
 	if err != nil {

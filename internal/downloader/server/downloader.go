@@ -35,7 +35,7 @@ func New(cfg *system.SystemConfig, console *ui.Console) (*Downloader, error) {
 		log = logger.NewStandardLogger()
 	}
 	if console == nil {
-		console = ui.NewConsole(log)
+		console = ui.NewConsole(log, nil)
 	}
 
 	baseCfg, err := core.BaseConfig()

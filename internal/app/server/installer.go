@@ -44,7 +44,7 @@ func NewInstaller(cfg *system.SystemConfig, console *ui.Console, repo *serverdow
 		log = logger.NewStandardLogger()
 	}
 	if console == nil {
-		console = ui.NewConsole(log)
+		console = ui.NewConsole(log, nil)
 	}
 
 	return &Installer{

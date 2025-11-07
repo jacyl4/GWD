@@ -15,38 +15,12 @@ type Console struct {
 	output   io.Writer
 }
 
-// ConsoleOption configures Console construction.
-type ConsoleOption func(*Console)
-
-// WithProgress supplies a custom progress implementation.
-func WithProgress(p logger.Progress) ConsoleOption {
-	return func(c *Console) {
-		c.progress = p
-	}
-}
-
-// WithOutput overrides the writer used for non-log text output.
-func WithOutput(w io.Writer) ConsoleOption {
-	return func(c *Console) {
-		if w != nil {
-			c.output = w
-		}
-	}
-}
-
 // NewConsole builds a Console bound to the provided logger.
-func NewConsole(log logger.Logger, opts ...ConsoleOption) *Console {
+func NewConsole(log logger.Logger, output io.Writer) *Console {
 	c := &Console{
 		logger: log,
-		output: os.Stdout,
+		output: output,
 	}
-
-	for _, opt := range opts {
-		if opt != nil {
-			opt(c)
-		}
-	}
-
 	if c.output == nil {
 		c.output = os.Stdout
 	}

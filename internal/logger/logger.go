@@ -19,9 +19,6 @@ type Logger interface {
 	// With returns a derived logger enriched with constant fields.
 	With(fields ...Field) Logger
 
-	// WithTrace enriches the logger with trace context extracted from ctx.
-	WithTrace(ctx context.Context) Logger
-
 	// Level control.
 	SetLevel(level Level)
 	GetLevel() Level
