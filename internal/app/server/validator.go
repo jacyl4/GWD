@@ -56,6 +56,8 @@ func (v *EnvironmentValidator) runValidations(checks []validation) error {
 }
 
 func (v *EnvironmentValidator) validateOperatingSystem() error {
+	v.logger.Info("Checking operating system compatibility...")
+
 	content, err := os.ReadFile("/etc/os-release")
 	if err != nil {
 		return v.wrapError(
@@ -78,20 +80,24 @@ func (v *EnvironmentValidator) validateOperatingSystem() error {
 		)
 	}
 
+	systemName := "Unknown"
 	for _, line := range strings.Split(osInfo, "\n") {
 		if strings.HasPrefix(line, "PRETTY_NAME=") {
-			systemName := strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
-			v.logger.Debug("Detected system: %s", systemName)
+			systemName = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
 			break
 		}
 	}
 
+	v.logger.Info("Operating system validated: %s", systemName)
 	return nil
 }
 
 func (v *EnvironmentValidator) validateArchitecture() error {
+	v.logger.Info("Checking system architecture...")
+
 	switch v.config.Architecture {
 	case "amd64", "arm64":
+		v.logger.Info("Architecture validated: %s", v.config.Architecture)
 		return nil
 	default:
 		return v.wrapError(
@@ -105,12 +111,15 @@ func (v *EnvironmentValidator) validateArchitecture() error {
 }
 
 func (v *EnvironmentValidator) validateNetworkConnectivity() error {
+	v.logger.Info("Checking network connectivity...")
+
 	testURLs := []string{
 		"https://cloudflare.com",
 		"https://google.com",
 	}
 
 	for _, url := range testURLs {
+		v.logger.Info("Testing connection to %s...", url)
 		if err := v.testHTTPConnection(url); err != nil {
 			return v.wrapError(
 				apperrors.ErrCategoryNetwork,
@@ -122,6 +131,7 @@ func (v *EnvironmentValidator) validateNetworkConnectivity() error {
 		}
 	}
 
+	v.logger.Info("Network connectivity validated")
 	return nil
 }
 
@@ -159,6 +169,8 @@ func (v *EnvironmentValidator) testHTTPConnection(url string) error {
 }
 
 func (v *EnvironmentValidator) validateDiskSpace() error {
+	v.logger.Info("Checking disk space...")
+
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {
 		return v.wrapError(
@@ -187,7 +199,7 @@ func (v *EnvironmentValidator) validateDiskSpace() error {
 		)
 	}
 
-	v.logger.Debug("Disk available space: %d MB", availableMB)
+	v.logger.Info("Disk space validated: %d MB available (required: %d MB)", availableMB, minSpaceMB)
 	return nil
 }
 

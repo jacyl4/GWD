@@ -7,6 +7,7 @@ const (
 	tcsssBinaryName      = "tcsss"
 	tcsssServiceUnit     = "tcsss.service"
 	tcsssServiceTemplate = "tcsss.service"
+	tcsssConfigDir       = "/etc/tcsss"
 )
 
 // NewTcsss returns a deployable tcsss component.
@@ -20,17 +21,9 @@ func NewTcsss(repoDir string) Component {
 		Service: TemplateConfig{
 			Source: tcsssServiceTemplate,
 		},
+		ConfigDirs: []string{tcsssConfigDir},
 		PostInstall: func() error {
-			if err := copyDirectory(templatesSrcDir, "/etc/tcsss"); err != nil {
-				return err
-			}
-			if err := systemctlRestart(tcsssServiceUnit); err != nil {
-				return err
-			}
-			if err := systemctlEnable(tcsssServiceUnit); err != nil {
-				return err
-			}
-			return nil
+			return copyDirectory(templatesSrcDir, tcsssConfigDir)
 		},
 	})
 }

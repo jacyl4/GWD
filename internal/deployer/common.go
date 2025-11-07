@@ -3,7 +3,6 @@ package deployer
 import (
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	apperrors "GWD/internal/errors"
@@ -21,6 +20,14 @@ const (
 func deployBinary(repoDir, binaryName, targetPath string) error {
 	source := filepath.Join(repoDir, binaryName)
 	target := targetPath
+
+	if _, err := os.Stat(target); err == nil {
+		if err := os.Remove(target); err != nil {
+			return newDeployerError("deployer.deployBinary", "failed to remove old binary", err, apperrors.Metadata{
+				"target": target,
+			})
+		}
+	}
 
 	if err := copyFile(source, target); err != nil {
 		return newDeployerError("deployer.deployBinary", "failed to copy binary", err, apperrors.Metadata{
@@ -117,30 +124,6 @@ func writeSystemdFile(path, content string) error {
 		})
 	}
 
-	return nil
-}
-
-// systemctlRestart restarts a systemd service.
-func systemctlRestart(serviceName string) error {
-	cmd := exec.Command("systemctl", "restart", serviceName)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return newDeployerError("deployer.systemctlRestart", "failed to restart service", err, apperrors.Metadata{
-			"service": serviceName,
-			"output":  string(output),
-		})
-	}
-	return nil
-}
-
-// systemctlEnable enables a systemd service.
-func systemctlEnable(serviceName string) error {
-	cmd := exec.Command("systemctl", "enable", serviceName)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return newDeployerError("deployer.systemctlEnable", "failed to enable service", err, apperrors.Metadata{
-			"service": serviceName,
-			"output":  string(output),
-		})
-	}
 	return nil
 }
 

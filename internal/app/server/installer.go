@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	configserver "GWD/internal/configurator/server"
@@ -114,6 +115,7 @@ func (i *Installer) InstallGWD(cfg *InstallConfig) error {
 		{"Install DoH server", "installer.installDoH", apperrors.ErrCategoryDeployment, i.installDOHServer},
 		{"Install Nginx", "installer.installNginx", apperrors.ErrCategoryDeployment, i.installNginx},
 		{"Install vtrui", "installer.installVtrui", apperrors.ErrCategoryDeployment, i.installVtrui},
+		{"Start system services", "installer.startSystemServices", apperrors.ErrCategoryDeployment, i.startSystemServices},
 		{"Configure SSL certificate", "installer.configureTLS", apperrors.ErrCategoryDeployment, func() error { return i.configureTLS(cfg) }},
 		{"Configure Nginx Web", "installer.configureNginxWeb", apperrors.ErrCategoryDeployment, i.configureNginxWeb},
 		{"Post-installation configuration", "installer.postInstall", apperrors.ErrCategoryDeployment, i.postInstallConfiguration},
@@ -220,6 +222,108 @@ func (i *Installer) installVtrui() error {
 	}
 	if err := i.vtrui.Validate(); err != nil {
 		return i.wrapError(apperrors.ErrCategoryDeployment, "installer.installVtrui", "vtrui validation failed", err, nil)
+	}
+	return nil
+}
+
+// startSystemServices starts all deployed system services in the correct order.
+func (i *Installer) startSystemServices() error {
+	i.logger.Info("Starting system services...")
+
+	services := []struct {
+		name        string
+		displayName string
+	}{
+		{"doh-server.service", "DoH server"},
+		{"tcsss.service", "TCSSS"},
+		{"nginx.service", "Nginx"},
+		{"vtrui.service", "Vtrui"},
+	}
+
+	for _, svc := range services {
+		i.logger.Info("Configuring %s service...", svc.displayName)
+		if err := i.startAndEnableService(svc.name); err != nil {
+			return i.wrapError(
+				apperrors.ErrCategoryDeployment,
+				"installer.startSystemServices",
+				fmt.Sprintf("failed to start %s service", svc.displayName),
+				err,
+				apperrors.Metadata{"service": svc.name},
+			)
+		}
+	}
+
+	i.logger.Info("All system services started successfully")
+	return nil
+}
+
+// startAndEnableService enables and starts a systemd service.
+func (i *Installer) startAndEnableService(serviceName string) error {
+	if err := i.systemctlDaemonReload(); err != nil {
+		return err
+	}
+
+	i.logger.Info("Enabling %s...", serviceName)
+	if err := i.systemctlEnable(serviceName); err != nil {
+		return err
+	}
+
+	i.logger.Info("Starting %s...", serviceName)
+	if err := i.systemctlRestart(serviceName); err != nil {
+		return err
+	}
+
+	i.logger.Info("Service %s started successfully", serviceName)
+	return nil
+}
+
+// systemctlDaemonReload reloads systemd daemon configuration.
+func (i *Installer) systemctlDaemonReload() error {
+	cmd := exec.Command("systemctl", "daemon-reload")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return i.wrapError(
+			apperrors.ErrCategorySystem,
+			"installer.systemctlDaemonReload",
+			"failed to reload systemd daemon",
+			err,
+			apperrors.Metadata{"output": string(output)},
+		)
+	}
+	return nil
+}
+
+// systemctlRestart restarts a systemd service.
+func (i *Installer) systemctlRestart(serviceName string) error {
+	cmd := exec.Command("systemctl", "restart", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return i.wrapError(
+			apperrors.ErrCategorySystem,
+			"installer.systemctlRestart",
+			"failed to restart service",
+			err,
+			apperrors.Metadata{
+				"service": serviceName,
+				"output":  string(output),
+			},
+		)
+	}
+	return nil
+}
+
+// systemctlEnable enables a systemd service.
+func (i *Installer) systemctlEnable(serviceName string) error {
+	cmd := exec.Command("systemctl", "enable", serviceName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return i.wrapError(
+			apperrors.ErrCategorySystem,
+			"installer.systemctlEnable",
+			"failed to enable service",
+			err,
+			apperrors.Metadata{
+				"service": serviceName,
+				"output":  string(output),
+			},
+		)
 	}
 	return nil
 }
