@@ -14,10 +14,21 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var defaultTimeSources = []string{
-	"https://whatismyip.akamai.com/",
-	"https://cloudflare.com/",
-	"https://time.cloudflare.com/",
+var containerTypes = []string{
+	"docker", "podman",
+	"lxc", "systemd-nspawn",
+	"lxc-libvirt", "openvz", "proot", "pouch",
+}
+
+const (
+	// HwClockSynced indicates the hardware clock was successfully synchronized.
+	HwClockSynced = "synced"
+)
+
+var categoryToCode = map[apperrors.ErrorCategory]string{
+	apperrors.ErrCategoryNetwork:    apperrors.CodeNetworkGeneric,
+	apperrors.ErrCategorySystem:     apperrors.CodeSystemGeneric,
+	apperrors.ErrCategoryValidation: apperrors.CodeValidationGeneric,
 }
 
 // Options controls how Sync obtains and applies network time.
@@ -29,11 +40,9 @@ type Options struct {
 
 // Result captures details about the synchronization attempt.
 type Result struct {
-	Source               string
-	NetworkTime          time.Time
-	HardwareClockSynced  bool
-	HardwareClockSkipped bool
-	HardwareClockWarning string
+	Source      string
+	NetworkTime time.Time
+	HwClockInfo string
 }
 
 // Sync fetches the current time from the configured HTTP(S) sources,
@@ -43,30 +52,36 @@ func Sync(ctx context.Context, opts *Options) (*Result, error) {
 		ctx = context.Background()
 	}
 
-	sources := defaultTimeSources
-	if opts != nil && len(opts.Sources) > 0 {
-		sources = opts.Sources
+	finalOpts := Options{
+		Sources: []string{
+			"https://whatismyip.akamai.com/",
+			"https://cloudflare.com/",
+			"https://time.cloudflare.com/",
+		},
+		Timeout: 5 * time.Second,
 	}
 
-	timeout := 5 * time.Second
-	skipHwClock := false
 	if opts != nil {
-		if opts.Timeout > 0 {
-			timeout = opts.Timeout
+		if len(opts.Sources) > 0 {
+			finalOpts.Sources = opts.Sources
 		}
-		skipHwClock = opts.SkipHardwareClock
+		if opts.Timeout > 0 {
+			finalOpts.Timeout = opts.Timeout
+		}
+		finalOpts.SkipHardwareClock = opts.SkipHardwareClock
 	}
 
 	httpClient := &http.Client{
-		Timeout: timeout,
+		Timeout: finalOpts.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Prevent redirects so time is derived from the original source host.
 			return http.ErrUseLastResponse
 		},
 	}
 
 	var failures []string
-	for _, source := range sources {
-		reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	for _, source := range finalOpts.Sources {
+		reqCtx, cancel := context.WithTimeout(ctx, finalOpts.Timeout)
 		networkTime, err := fetchNetworkTime(reqCtx, httpClient, source)
 		cancel()
 		if err != nil {
@@ -75,9 +90,7 @@ func Sync(ctx context.Context, opts *Options) (*Result, error) {
 		}
 
 		if err := setSystemClock(networkTime); err != nil {
-			return nil, newTimesyncError(apperrors.ErrCategorySystem, "timesync.Sync.setSystemClock", "failed to apply network time to system clock", err, apperrors.Metadata{
-				"source": source,
-			})
+			return nil, err
 		}
 
 		result := &Result{
@@ -85,81 +98,71 @@ func Sync(ctx context.Context, opts *Options) (*Result, error) {
 			NetworkTime: networkTime,
 		}
 
-		if skipHwClock {
-			result.HardwareClockSkipped = true
+		if finalOpts.SkipHardwareClock {
+			result.HwClockInfo = "skipped by config"
 			return result, nil
 		}
 
-		synced, warning, err := syncHardwareClock()
+		info, err := syncHardwareClock()
 		if err != nil {
 			return nil, err
 		}
-		result.HardwareClockSynced = synced
-		if warning != "" {
-			result.HardwareClockWarning = warning
-			result.HardwareClockSkipped = !synced
-		}
+		result.HwClockInfo = info
 
 		return result, nil
 	}
 
-	if len(failures) == 0 {
-		return nil, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.Sync", "no time sources provided", nil, nil)
-	}
-
-	return nil, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.Sync", "failed to fetch network time from sources", nil, apperrors.Metadata{
-		"failures": strings.Join(failures, "; "),
-	})
+	return nil, newTimesyncError(apperrors.ErrCategoryNetwork, "Sync", "failed to fetch network time from sources", nil).
+		WithField("failures", strings.Join(failures, "; "))
 }
 
 func fetchNetworkTime(ctx context.Context, client *http.Client, source string) (time.Time, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, source, nil)
-	if err != nil {
-		return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.fetchNetworkTime.buildHead", "failed to build HEAD request", err, apperrors.Metadata{
-			"source": source,
-		})
+	wrapErr := func(err error) error {
+		return newTimesyncError(apperrors.ErrCategoryNetwork, "fetchNetworkTime", "failed to fetch time", err).
+			WithField("source", source)
 	}
 
-	response, err := client.Do(request)
-	if err != nil {
-		return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.fetchNetworkTime.head", "HEAD request failed", err, apperrors.Metadata{
-			"source": source,
-		})
+	doRequest := func(method string) (string, error) {
+		req, err := http.NewRequestWithContext(ctx, method, source, nil)
+		if err != nil {
+			return "", fmt.Errorf("build %s request: %w", method, err)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("%s request: %w", method, err)
+		}
+		defer resp.Body.Close()
+
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return "", fmt.Errorf("drain %s response: %w", method, err)
+		}
+
+		return resp.Header.Get("Date"), nil
 	}
-	io.Copy(io.Discard, response.Body)
-	response.Body.Close()
 
-	dateHeader := response.Header.Get("Date")
-	if dateHeader == "" {
-		request, err = http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
-		if err != nil {
-			return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.fetchNetworkTime.buildGet", "failed to build GET request", err, apperrors.Metadata{
-				"source": source,
-			})
-		}
-
-		response, err = client.Do(request)
-		if err != nil {
-			return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.fetchNetworkTime.get", "GET request failed", err, apperrors.Metadata{
-				"source": source,
-			})
-		}
-		io.Copy(io.Discard, response.Body)
-		response.Body.Close()
-		dateHeader = response.Header.Get("Date")
+	dateHeader, err := doRequest(http.MethodHead)
+	if err != nil {
+		return time.Time{}, wrapErr(err)
 	}
 
 	if dateHeader == "" {
-		return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.fetchNetworkTime", "source did not provide a Date header", nil, apperrors.Metadata{
-			"source": source,
-		})
+		dateHeader, err = doRequest(http.MethodGet)
+		if err != nil {
+			return time.Time{}, wrapErr(err)
+		}
+	}
+
+	if dateHeader == "" {
+		return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "fetchNetworkTime", "no Date header from source", nil).
+			WithField("source", source)
 	}
 
 	parsed, err := http.ParseTime(dateHeader)
 	if err != nil {
-		return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "timesync.fetchNetworkTime", "failed to parse Date header", err, apperrors.Metadata{
-			"date_header": dateHeader,
-		})
+		return time.Time{}, newTimesyncError(apperrors.ErrCategoryNetwork, "fetchNetworkTime", "invalid Date header", err).
+			WithField("source", source).
+			WithField("date_header", dateHeader)
 	}
 
 	return parsed.UTC(), nil
@@ -168,26 +171,26 @@ func fetchNetworkTime(ctx context.Context, client *http.Client, source string) (
 func setSystemClock(target time.Time) error {
 	tv := unix.NsecToTimeval(target.UTC().UnixNano())
 	if err := unix.Settimeofday(&tv); err != nil {
-		return newTimesyncError(apperrors.ErrCategorySystem, "timesync.setSystemClock", "settimeofday failed", err, nil)
+		return newTimesyncError(apperrors.ErrCategorySystem, "setSystemClock", "settimeofday failed", err)
 	}
 	return nil
 }
 
-func syncHardwareClock() (bool, string, error) {
+func syncHardwareClock() (string, error) {
 	canSync, reason, err := canSyncHardwareClock()
 	if err != nil {
-		return false, "", err
+		return "", err
 	}
 	if !canSync {
-		return false, reason, nil
+		return reason, nil
 	}
 
 	cmd := exec.Command("hwclock", "--systohc")
 	if err := cmd.Run(); err != nil {
-		return false, "", newTimesyncError(apperrors.ErrCategorySystem, "timesync.syncHardwareClock", "hwclock --systohc failed", err, nil)
+		return "", newTimesyncError(apperrors.ErrCategorySystem, "syncHardwareClock", "hwclock --systohc failed", err)
 	}
 
-	return true, "", nil
+	return HwClockSynced, nil
 }
 
 func canSyncHardwareClock() (bool, string, error) {
@@ -195,8 +198,7 @@ func canSyncHardwareClock() (bool, string, error) {
 		return false, "hwclock command not available", nil
 	}
 
-	virt, err := detectVirtualization()
-	if err == nil && virt == "container" {
+	if detectVirtualization() == "container" {
 		return false, "hardware clock not accessible inside containers", nil
 	}
 
@@ -207,25 +209,25 @@ func canSyncHardwareClock() (bool, string, error) {
 	return true, "", nil
 }
 
-func detectVirtualization() (string, error) {
+func detectVirtualization() string {
 	cmd := exec.Command("systemd-detect-virt")
 	output, err := cmd.Output()
 	if err != nil {
-		return "physical", nil
+		return "unknown"
 	}
 
 	virt := strings.TrimSpace(string(output))
+	if virt == "none" {
+		return "physical"
+	}
 
-	containerTypes := []string{"openvz", "lxc", "lxc-libvirt", "systemd-nspawn",
-		"docker", "podman", "proot", "pouch"}
-
-	for _, containerType := range containerTypes {
-		if virt == containerType {
-			return "container", nil
+	for _, ct := range containerTypes {
+		if virt == ct {
+			return "container"
 		}
 	}
 
-	return "vm", nil
+	return "vm"
 }
 
 func rtcDeviceExists() bool {
@@ -238,24 +240,13 @@ func rtcDeviceExists() bool {
 	return false
 }
 
-func newTimesyncError(category apperrors.ErrorCategory, operation, message string, err error, metadata apperrors.Metadata) *apperrors.AppError {
-	code := apperrors.CodeSystemGeneric
-	switch category {
-	case apperrors.ErrCategoryNetwork:
-		code = apperrors.CodeNetworkGeneric
-	case apperrors.ErrCategoryValidation:
-		code = apperrors.CodeValidationGeneric
-	case apperrors.ErrCategorySystem:
-		code = apperrors.CodeSystemGeneric
-	default:
+func newTimesyncError(category apperrors.ErrorCategory, operation, message string, err error) *apperrors.AppError {
+	code, ok := categoryToCode[category]
+	if !ok {
 		code = apperrors.CodeSystemGeneric
 	}
 
-	appErr := apperrors.New(category, code, message, err).
+	return apperrors.New(category, code, message, err).
 		WithModule("timesync").
 		WithOperation(operation)
-	if metadata != nil {
-		appErr.WithFields(metadata)
-	}
-	return appErr
 }

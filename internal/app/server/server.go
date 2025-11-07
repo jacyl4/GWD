@@ -18,6 +18,10 @@ type App struct {
 }
 
 func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) (*App, error) {
+	if log == nil {
+		log = logger.NewColoredLogger()
+	}
+
 	console := ui.NewConsole(log, nil)
 
 	repo, err := serverdownloader.New(cfg, console)
@@ -33,7 +37,9 @@ func NewServer(cfg *system.SystemConfig, log *logger.ColoredLogger) (*App, error
 		menu:    menuManager,
 	}
 
-	app.installer = NewInstaller(cfg, console, repo)
+	validator := NewEnvironmentValidator(cfg, log)
+
+	app.installer = NewInstaller(cfg, console, repo, validator)
 	app.menu.SetInstallHandler(app.InstallGWD)
 
 	return app, nil
@@ -45,5 +51,9 @@ func (a *App) Run(ctx context.Context) error {
 
 // InstallGWD executes the full GWD installation process.
 func (a *App) InstallGWD(domainConfig *menu.DomainInfo) error {
-	return a.installer.InstallGWD(domainConfig)
+	cfg, err := InstallConfigFromDomainInfo(domainConfig)
+	if err != nil {
+		return err
+	}
+	return a.installer.InstallGWD(cfg)
 }
